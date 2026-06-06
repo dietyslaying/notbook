@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import logging
 import asyncio
@@ -98,8 +99,17 @@ async def handle_document(message: Message):
         await processing_msg.edit_text(summary)
         
     except Exception as e:
-        logger.error(f"Document processing error for user {user_id}: {e}")
-        await processing_msg.edit_text(prompts['messages']['error_processing'])
+        error_msg = str(e)
+        logger.error(f"Document processing error for user {user_id}: {error_msg}")
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+            match = re.search(r'retry in ([\d\.]+)s', error_msg)
+            if match:
+                seconds = int(float(match.group(1))) + 1
+                await processing_msg.edit_text(f"You are asking questions too quickly! Google's Free Tier limits us to 15 requests per minute. Please wait {seconds} seconds and try again.")
+            else:
+                await processing_msg.edit_text(prompts['messages']['error_rate_limit'])
+        else:
+            await processing_msg.edit_text(prompts['messages']['error_processing'])
         
     finally:
         # 9. ALWAYS clean up the local file system
@@ -132,8 +142,17 @@ async def handle_question(message: Message):
         
         await message.answer(answer)
     except Exception as e:
-        logger.error(f"Inference error for user {user_id}: {e}")
-        await message.answer(prompts['messages']['error_inference'])
+        error_msg = str(e)
+        logger.error(f"Inference error for user {user_id}: {error_msg}")
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+            match = re.search(r'retry in ([\d\.]+)s', error_msg)
+            if match:
+                seconds = int(float(match.group(1))) + 1
+                await message.answer(f"You are asking questions too quickly! Google's Free Tier limits us to 15 requests per minute. Please wait {seconds} seconds and try again.")
+            else:
+                await message.answer(prompts['messages']['error_rate_limit'])
+        else:
+            await message.answer(prompts['messages']['error_inference'])
     finally:
         typing_task.cancel()
 
