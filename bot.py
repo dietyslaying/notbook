@@ -8,7 +8,7 @@ from aiogram.types import Message
 from aiogram.filters import CommandStart
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
-from aiogram.webhook.aiohttp_impl import SimpleRequestHandler, setup_application
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
 import gemini_service
