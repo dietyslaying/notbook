@@ -4,6 +4,8 @@ import logging
 from google import genai
 from google.genai import types
 from pinecone import Pinecone
+from google.genai import types
+from pinecone import Pinecone
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +43,13 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
         return "System error: Database not connected."
         
     try:
-        # 1. Embed the user's question
-        embed_response = client.models.embed_content(
+        # 1. Embed the user's question using Pinecone Inference API
+        response = pc.inference.embed(
             model=config['pinecone']['embedding_model'],
-            contents=user_question
+            inputs=[user_question],
+            parameters={"input_type": "query"}
         )
-        query_embedding = embed_response.embeddings[0].values
+        query_embedding = response[0].values
         
         # 2. Search Pinecone for top 5 relevant chunks
         search_results = index.query(

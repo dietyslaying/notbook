@@ -28,4 +28,4 @@ bot:
 
 pinecone:
   index_name: "library-index"
-  embedding_model: "text-embedding-004"
+  embedding_model: "multilingual-e5-large"

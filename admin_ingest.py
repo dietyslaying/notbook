@@ -2,10 +2,8 @@ import os
 import argparse
 import yaml
 import logging
-from pypdf import PdfReader
+import pypdfium2 as pdfium
 from pinecone import Pinecone, ServerlessSpec
-from google import genai
-from google.genai import types
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,17 +17,24 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 if not PINECONE_API_KEY:
     raise ValueError("PINECONE_API_KEY environment variable is missing")
 
-client = genai.Client()
 pc = Pinecone(api_key=PINECONE_API_KEY)
 index_name = config['pinecone']['index_name']
 
 def init_pinecone():
     """Initializes the Pinecone index if it doesn't exist."""
+    try:
+        idx_info = pc.describe_index(index_name)
+        if idx_info.dimension != 1024:
+            logger.info(f"Deleting incompatible index: {index_name}")
+            pc.delete_index(index_name)
+    except Exception:
+        pass
+
     if index_name not in pc.list_indexes().names():
         logger.info(f"Creating Pinecone index: {index_name}")
         pc.create_index(
             name=index_name,
-            dimension=768, # Dimension for text-embedding-004
+            dimension=1024, # Dimension for multilingual-e5-large
             metric='cosine',
             spec=ServerlessSpec(
                 cloud='aws',
@@ -53,10 +58,11 @@ def ingest_pdf(pdf_path: str, namespace: str):
     index = init_pinecone()
     
     logger.info(f"Reading PDF: {pdf_path}")
-    reader = PdfReader(pdf_path)
+    doc = pdfium.PdfDocument(pdf_path)
     full_text = ""
-    for page in reader.pages:
-        page_text = page.extract_text()
+    for page in doc:
+        textpage = page.get_textpage()
+        page_text = textpage.get_text_range()
         if page_text:
             full_text += page_text + "\n"
             
@@ -64,21 +70,24 @@ def ingest_pdf(pdf_path: str, namespace: str):
     chunks = chunk_text(full_text)
     logger.info(f"Created {len(chunks)} chunks.")
     
-    batch_size = 100 # Process in batches to avoid API limits
+    logger.info("Using Pinecone Inference API (multilingual-e5-large)...")
+    batch_size = 96 # Pinecone embed accepts up to 96 inputs per request
     
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i:i+batch_size]
         logger.info(f"Embedding batch {i//batch_size + 1}/{(len(chunks)-1)//batch_size + 1}")
         
-        # Embed with Gemini
-        response = client.models.embed_content(
+        # Embed using Pinecone Inference
+        response = pc.inference.embed(
             model=config['pinecone']['embedding_model'],
-            contents=batch
+            inputs=batch,
+            parameters={"input_type": "passage", "truncate": "END"}
         )
+        embeddings = response
         
         # Prepare vectors for Pinecone
         vectors = []
-        for j, embedding in enumerate(response.embeddings):
+        for j, embedding in enumerate(embeddings):
             chunk_idx = i + j
             vector_id = f"chunk_{chunk_idx}"
             metadata = {
