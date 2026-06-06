@@ -1,70 +1,83 @@
-import redis
+import sqlite3
 import yaml
 import logging
 import json
 import os
-import logging
-import json
-import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+DB_FILE = "sessions.db"
 
-try:
-    redis_url = os.getenv("REDIS_URL")
-    if redis_url:
-        redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
-    else:
-        redis_client = redis.Redis(
-            host=config['redis']['host'],
-            port=config['redis']['port'],
-            db=config['redis']['db'],
-            password=config['redis']['password'],
-            decode_responses=True 
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            user_id INTEGER PRIMARY KEY,
+            cache_name TEXT,
+            chat_history TEXT
         )
-    # Ping to check connection on startup
-    redis_client.ping()
-except redis.ConnectionError as e:
-    logger.error(f"Failed to connect to Redis: {e}")
-    raise SystemExit("Critical Error: Redis connection failed.")
+    """)
+    conn.commit()
+    conn.close()
+
+# Initialize the database on startup
+init_db()
 
 def save_user_session(user_id: int, cache_name: str) -> None:
-    key = f"user_session:{user_id}"
-    ttl = config['cache']['redis_ttl']
-    redis_client.set(key, cache_name, ex=ttl)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO sessions (user_id, cache_name, chat_history) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET cache_name=excluded.cache_name
+    """, (user_id, cache_name, "[]"))
+    conn.commit()
+    conn.close()
 
 def get_user_session(user_id: int) -> str | None:
-    key = f"user_session:{user_id}"
-    return redis_client.get(key)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT cache_name FROM sessions WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row[0]:
+        return row[0]
+    return None
 
 def clear_user_session(user_id: int) -> None:
-    key = f"user_session:{user_id}"
-    history_key = f"chat_history:{user_id}"
-    redis_client.delete(key, history_key)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
 def get_chat_history(user_id: int) -> list:
-    key = f"chat_history:{user_id}"
-    history_json = redis_client.get(key)
-    if history_json:
-        return json.loads(history_json)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT chat_history FROM sessions WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row[0]:
+        return json.loads(row[0])
     return []
 
 def add_to_chat_history(user_id: int, role: str, text: str) -> None:
-    """role: 'user' or 'model'"""
-    key = f"chat_history:{user_id}"
     history = get_chat_history(user_id)
-    
-    # Optional: we can just store pure dictionaries that match Gemini types.Content
-    # since we pass them directly or manually parse them.
     history.append({"role": role, "text": text})
     
     # Keep only the last 10 turns (20 messages)
     if len(history) > 20:
         history = history[-20:]
         
-    ttl = config['cache']['redis_ttl']
-    redis_client.set(key, json.dumps(history), ex=ttl)
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE sessions SET chat_history = ? WHERE user_id = ?
+    """, (json.dumps(history), user_id))
+    conn.commit()
+    conn.close()

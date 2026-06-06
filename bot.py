@@ -8,6 +8,8 @@ from aiogram.types import Message
 from aiogram.filters import CommandStart
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
+from aiogram.webhook.aiohttp_impl import SimpleRequestHandler, setup_application
+from aiohttp import web
 
 import gemini_service
 import session_manager
@@ -83,7 +85,7 @@ async def handle_document(message: Message):
         # 6. Create Cache via Gemini API
         cache_name = gemini_service.create_document_cache(local_path, mime_type)
         
-        # 7. Save to Redis
+        # 7. Save to DB
         session_manager.save_user_session(user_id, cache_name)
         
         # 8. Generate Summary and Suggested Questions with background typing
@@ -102,7 +104,10 @@ async def handle_document(message: Message):
     finally:
         # 9. ALWAYS clean up the local file system
         if os.path.exists(local_path):
-            os.remove(local_path)
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
 
 @dp.message(F.text)
 async def handle_question(message: Message):
@@ -132,6 +137,40 @@ async def handle_question(message: Message):
     finally:
         typing_task.cancel()
 
+# --- Webhook configuration ---
+async def on_startup(bot: Bot) -> None:
+    webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
+    await bot.set_webhook(webhook_url)
+    logger.info(f"Webhook set to: {webhook_url}")
+
+async def on_shutdown(bot: Bot) -> None:
+    await bot.delete_webhook()
+    logger.info("Webhook deleted.")
+
 if __name__ == "__main__":
-    logger.info("Starting Telegram Bot...")
-    asyncio.run(dp.start_polling(bot))
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    
+    if render_url:
+        logger.info("Running in Webhook mode (Render)...")
+        dp.startup.register(on_startup)
+        dp.shutdown.register(on_shutdown)
+        
+        app = web.Application()
+        
+        # Simple health check endpoint for Render
+        async def health(request):
+            return web.Response(text="OK", status=200)
+        app.router.add_get("/", health)
+        
+        SimpleRequestHandler(
+            dispatcher=dp,
+            bot=bot
+        ).register(app, path="/webhook")
+        
+        setup_application(app, dp, bot=bot)
+        
+        port = int(os.getenv("PORT", 8000))
+        web.run_app(app, host="0.0.0.0", port=port)
+    else:
+        logger.info("Running in Polling mode (Local)...")
+        asyncio.run(dp.start_polling(bot))
