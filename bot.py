@@ -3,10 +3,10 @@ import re
 import yaml
 import logging
 import asyncio
-import tempfile
+import math
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
-from aiogram.filters import CommandStart
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.filters import CommandStart, Command
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -51,90 +51,83 @@ async def cmd_start(message: Message):
 
 @dp.message(F.document)
 async def handle_document(message: Message):
-    user_id = message.from_user.id
-    doc = message.document
-    mime_type = doc.mime_type
+    await message.answer("Direct file uploads are disabled in this RAG bot. The admin adds books directly to the database. Use /books to see available books!")
+
+def get_library_keyboard(page: int = 0):
+    books = gemini_service.get_available_books()
+    items_per_page = 8
+    total_pages = math.ceil(len(books) / items_per_page) if books else 1
     
-    # 1. Check File Size
-    file_size_mb = doc.file_size / (1024 * 1024)
-    if file_size_mb > config['cache']['max_file_size_mb'] and not local_api_url:
-        await message.answer(prompts['messages']['error_file_too_large'])
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    page_books = books[start_idx:end_idx]
+    
+    keyboard = []
+    row = []
+    for book in page_books:
+        # We use the namespace directly as callback data
+        btn = InlineKeyboardButton(text=book[:30], callback_data=f"book_{book[:30]}")
+        row.append(btn)
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+        
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="<< Prev", callback_data=f"page_{page-1}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton(text="Next >>", callback_data=f"page_{page+1}"))
+        
+    if nav_row:
+        keyboard.append(nav_row)
+        
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+@dp.message(Command("books", "library"))
+async def cmd_books(message: Message):
+    books = gemini_service.get_available_books()
+    if not books:
+        await message.answer("The library is currently empty. Ask the admin to run admin_ingest.py!")
         return
-
-    # 2. Check File Type
-    if mime_type not in config['cache']['allowed_mime_types']:
-        await message.answer(prompts['messages']['error_unsupported_file'])
-        return
-
-    processing_msg = await message.answer(prompts['messages']['processing'])
     
-    # 3. Create a safer tempfile
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        local_path = tmp.name
-    
-    try:
-        # 4. Cleanup existing session if user is uploading a new document
-        existing_cache = session_manager.get_user_session(user_id)
-        if existing_cache:
-            gemini_service.delete_document_cache(existing_cache)
-        session_manager.clear_user_session(user_id)
+    await message.answer("Please select a book from the library:", reply_markup=get_library_keyboard(0))
 
-        # 5. Download file locally
-        file_info = await bot.get_file(doc.file_id)
-        await bot.download_file(file_info.file_path, local_path)
-        
-        # 6. Create Cache via Gemini API
-        cache_name = gemini_service.create_document_cache(local_path, mime_type)
-        
-        # 7. Save to DB
-        session_manager.save_user_session(user_id, cache_name)
-        
-        # 8. Generate Summary and Suggested Questions with background typing
-        typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
-        try:
-            summary = gemini_service.generate_summary_and_suggestions(cache_name)
-        finally:
-            typing_task.cancel()
-        
-        await processing_msg.edit_text(summary)
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Document processing error for user {user_id}: {error_msg}")
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            match = re.search(r'retry in ([\d\.]+)s', error_msg)
-            if match:
-                seconds = int(float(match.group(1))) + 1
-                await processing_msg.edit_text(f"You are asking questions too quickly! Google's Free Tier limits us to 15 requests per minute. Please wait {seconds} seconds and try again.")
-            else:
-                await processing_msg.edit_text(prompts['messages']['error_rate_limit'])
-        else:
-            await processing_msg.edit_text(prompts['messages']['error_processing'])
-        
-    finally:
-        # 9. ALWAYS clean up the local file system
-        if os.path.exists(local_path):
-            try:
-                os.remove(local_path)
-            except Exception:
-                pass
+@dp.callback_query(F.data.startswith("page_"))
+async def callback_page(callback: CallbackQuery):
+    page = int(callback.data.split("_")[1])
+    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(page))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("book_"))
+async def callback_book(callback: CallbackQuery):
+    namespace = callback.data.split("_", 1)[1]
+    
+    user_id = callback.from_user.id
+    # We save the namespace as the user's active session
+    session_manager.save_user_session(user_id, namespace)
+    
+    msg = prompts['messages'].get('book_selected', "You've selected **{book_name}**. Ask me anything about it!").format(book_name=namespace)
+    await callback.message.answer(msg)
+    await callback.answer()
 
 @dp.message(F.text)
 async def handle_question(message: Message):
     user_id = message.from_user.id
     
-    # 1. Verify active session
-    cache_name = session_manager.get_user_session(user_id)
-    if not cache_name:
+    # 1. Verify active session (which is now the Pinecone namespace)
+    namespace = session_manager.get_user_session(user_id)
+    if not namespace:
         await message.answer(prompts['messages']['cache_expired'])
         return
         
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
     
-    # 2. Query the LLM
+    # 2. Query the LLM via RAG
     try:
         history = session_manager.get_chat_history(user_id)
-        answer = gemini_service.query_cached_document(cache_name, message.text, history)
+        answer = gemini_service.query_rag(namespace, message.text, history)
         
         # 3. Save interaction
         session_manager.add_to_chat_history(user_id, "user", message.text)

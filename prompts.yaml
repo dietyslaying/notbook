@@ -8,16 +8,20 @@ system_instruction: |
   3. If the answer cannot be explicitly found in the document, you MUST reply exactly with: 'I cannot find the answer to this in the uploaded document.'
 
 messages:
-  greeting: "Welcome! Send me a PDF (up to 20MB) and ask me anything about it."
+  greeting: "Welcome! Use /books to choose a book from our library, or send me a PDF to start studying."
   processing: "Memorizing your document... This might take a minute."
   success: "Document memorized successfully! Ask me anything."
-  cache_expired: "Your document session has expired to save resources, or you haven't uploaded one yet. Please send a PDF."
+  cache_expired: "Your document session has expired, or you haven't selected a book yet. Use /books to choose a book or upload a PDF."
   error_not_found: "I cannot find the answer to this in the uploaded document."
   error_file_too_large: "This file is too large! The standard Telegram limit is 20MB."
   error_unsupported_file: "Unsupported file type. Please send a PDF or TXT file."
   error_processing: "An error occurred while memorizing your document. Please try again."
   error_inference: "I'm having trouble connecting to the reasoning engine right now. Try again in a moment."
   error_rate_limit: "You are sending messages too quickly! Please wait a moment and try again."
+  admin_preload_start: "Downloading and preloading book: {book_name}..."
+  admin_preload_success: "Successfully preloaded {book_name} into the library! Cache ID: {cache_id}"
+  admin_preload_error: "Failed to preload book. Error: {error}"
+  book_selected: "You've selected **{book_name}**. Ask me anything about it!"
 
 internal_prompts:
   generate_summary_and_suggestions: |

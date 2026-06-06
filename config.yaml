@@ -24,3 +24,8 @@ redis:
 bot:
   rate_limit_per_minute: 5
   telegram_local_api_url: null  # Set this to use a local API server (e.g., "http://localhost:8081")
+  admin_ids: []  # Add your Telegram User ID here to use /preload
+
+pinecone:
+  index_name: "library-index"
+  embedding_model: "text-embedding-004"

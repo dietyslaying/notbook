@@ -1,7 +1,9 @@
+import os
 import yaml
 import logging
 from google import genai
 from google.genai import types
+from pinecone import Pinecone
 
 logger = logging.getLogger(__name__)
 
@@ -13,167 +15,59 @@ with open("prompts.yaml", "r") as f:
 
 client = genai.Client()
 
-def create_document_cache(local_file_path: str, mime_type: str) -> str:
-    """Uploads file and attempts to create an explicit context cache.
-    Falls back to raw file mode if the document is too small or cache is not supported."""
-    uploaded_file = client.files.upload(file=local_file_path)
-    
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+if PINECONE_API_KEY:
+    pc = Pinecone(api_key=PINECONE_API_KEY)
+    index = pc.Index(config['pinecone']['index_name'])
+else:
+    logger.warning("PINECONE_API_KEY not found in environment!")
+    index = None
+
+def get_available_books() -> list:
+    """Fetches namespaces from Pinecone to populate the library menu."""
+    if not index:
+        return []
     try:
-        cache = client.caches.create(
-            model=config['llm']['model_name'],
-            config=types.CreateCachedContentConfig(
-                system_instruction=prompts['system_instruction'],
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_uri(
-                                file_uri=uploaded_file.uri,
-                                mime_type=mime_type
-                            )
-                        ]
-                    )
-                ],
-                ttl=config['cache']['ttl'],
-            )
-        )
-        try:
-            client.files.delete(name=uploaded_file.name)
-        except Exception as fe:
-            logger.warning(f"Could not delete temp file {uploaded_file.name} after caching: {fe}")
-            
-        return f"cache|{cache.name}"
+        stats = index.describe_index_stats()
+        namespaces = stats.get("namespaces", {})
+        return list(namespaces.keys())
     except Exception as e:
-        logger.info(f"Failed to create cache: {e}. Using raw file fallback.")
-        return f"file|{uploaded_file.name}|{uploaded_file.uri}|{mime_type}"
+        logger.error(f"Failed to fetch Pinecone namespaces: {e}")
+        return []
 
-def delete_document_cache(session_info: str) -> None:
-    """Explicitly deletes the cache or the file from Google's servers."""
-    if not session_info:
-        return
+def query_rag(namespace: str, user_question: str, chat_history: list = None) -> str:
+    """Queries Pinecone for context and then asks Gemini."""
+    if not index:
+        return "System error: Database not connected."
         
-    delimiter = "|" if "|" in session_info else ":"
-    parts = session_info.split(delimiter)
-    mode = parts[0]
-    
-    if mode == "cache":
-        cache_name = session_info.split(delimiter, 1)[1]
-        try:
-            client.caches.delete(name=cache_name)
-            logger.info(f"Successfully deleted cache: {cache_name}")
-        except Exception as e:
-            logger.warning(f"Failed to delete cache {cache_name} (it may have expired): {e}")
-    elif mode == "file":
-        if len(parts) >= 2:
-            file_name = parts[1]
-            try:
-                client.files.delete(name=file_name)
-                logger.info(f"Successfully deleted file: {file_name}")
-            except Exception as e:
-                logger.warning(f"Failed to delete file {file_name} (it may have expired): {e}")
-
-def generate_summary_and_suggestions(session_info: str) -> str:
-    """Generates a summary and suggested questions after document upload."""
-    prompt = prompts['internal_prompts']['generate_summary_and_suggestions']
-    delimiter = "|" if "|" in session_info else ":"
-    parts = session_info.split(delimiter)
-    mode = parts[0]
-    
     try:
-        if mode == "cache":
-            cache_name = session_info.split(delimiter, 1)[1]
-            response = client.models.generate_content(
-                model=config['llm']['model_name'],
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    cached_content=cache_name,
-                    temperature=0.2,
-                )
-            )
-        else:
-            file_uri = session_info.split(delimiter, 3)[2]
-            mime_type = session_info.split(delimiter, 3)[3]
-            contents = [
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
-                        types.Part.from_text(text=prompt)
-                    ]
-                )
-            ]
-            response = client.models.generate_content(
-                model=config['llm']['model_name'],
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=prompts['system_instruction'],
-                    temperature=0.2,
-                )
-            )
+        # 1. Embed the user's question
+        embed_response = client.models.embed_content(
+            model=config['pinecone']['embedding_model'],
+            contents=user_question
+        )
+        query_embedding = embed_response.embeddings[0].values
+        
+        # 2. Search Pinecone for top 5 relevant chunks
+        search_results = index.query(
+            namespace=namespace,
+            vector=query_embedding,
+            top_k=5,
+            include_metadata=True
+        )
+        
+        if not search_results.matches:
+            return prompts['messages']['error_not_found']
             
-        if response.text:
-            return response.text
-    except Exception as e:
-        logger.error(f"Failed to generate summary: {e}")
+        # 3. Assemble the retrieved context
+        context_text = "\n\n---\n\n".join([match.metadata["text"] for match in search_results.matches])
         
-    return "Document processed successfully. What would you like to know about it?"
-
-def query_cached_document(session_info: str, user_question: str, chat_history: list = None) -> str:
-    """Queries either the explicit cache or the raw file based on the session type."""
-    delimiter = "|" if "|" in session_info else ":"
-    parts = session_info.split(delimiter)
-    mode = parts[0]
-    
-    contents = []
-    
-    if mode == "cache":
-        cache_name = session_info.split(delimiter, 1)[1]
-        if chat_history:
-            for msg in chat_history:
-                contents.append(
-                    types.Content(
-                        role=msg["role"],
-                        parts=[types.Part.from_text(text=msg["text"])]
-                    )
-                )
-        contents.append(
-            types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_question)]
-            )
-        )
+        # 4. Construct prompt for Gemini
+        system_msg = prompts['system_instruction']
         
-        response = client.models.generate_content(
-            model=config['llm']['model_name'],
-            contents=contents,
-            config=types.GenerateContentConfig(
-                cached_content=cache_name,
-                temperature=config['llm']['temperature'],
-                top_p=config['llm']['top_p'],
-                top_k=config['llm']['top_k'],
-                max_output_tokens=config['llm']['max_output_tokens']
-            )
-        )
-    else:
-        file_uri = session_info.split(delimiter, 3)[2]
-        mime_type = session_info.split(delimiter, 3)[3]
+        full_prompt = f"Here is the retrieved context from the document:\n{context_text}\n\nUser Question: {user_question}"
         
-        contents.append(
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_uri(file_uri=file_uri, mime_type=mime_type),
-                    types.Part.from_text(text="[Document Uploaded]")
-                ]
-            )
-        )
-        contents.append(
-            types.Content(
-                role="model",
-                parts=[types.Part.from_text(text="I have received the document and am ready to answer your questions.")]
-            )
-        )
-        
+        contents = []
         if chat_history:
             for msg in chat_history:
                 contents.append(
@@ -186,15 +80,16 @@ def query_cached_document(session_info: str, user_question: str, chat_history: l
         contents.append(
             types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=user_question)]
+                parts=[types.Part.from_text(text=full_prompt)]
             )
         )
         
+        # 5. Generate final answer
         response = client.models.generate_content(
             model=config['llm']['model_name'],
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=prompts['system_instruction'],
+                system_instruction=system_msg,
                 temperature=config['llm']['temperature'],
                 top_p=config['llm']['top_p'],
                 top_k=config['llm']['top_k'],
@@ -202,7 +97,11 @@ def query_cached_document(session_info: str, user_question: str, chat_history: l
             )
         )
         
-    if not response.text:
-        return prompts['messages']['error_not_found']
+        if not response.text:
+            return prompts['messages']['error_not_found']
+            
+        return response.text
         
-    return response.text
+    except Exception as e:
+        logger.error(f"RAG Inference failed: {e}")
+        raise e

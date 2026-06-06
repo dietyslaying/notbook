@@ -22,11 +22,55 @@ def init_db():
             chat_history TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS library (
+            file_hash TEXT PRIMARY KEY,
+            book_name TEXT,
+            cache_name TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
 # Initialize the database on startup
 init_db()
+
+def add_to_library(file_hash: str, book_name: str, cache_name: str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO library (file_hash, book_name, cache_name) 
+        VALUES (?, ?, ?)
+        ON CONFLICT(file_hash) DO UPDATE SET book_name=excluded.book_name, cache_name=excluded.cache_name, timestamp=CURRENT_TIMESTAMP
+    """, (file_hash, book_name, cache_name))
+    conn.commit()
+    conn.close()
+
+def get_library_books():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_hash, book_name, cache_name FROM library ORDER BY timestamp DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"file_hash": r[0], "book_name": r[1], "cache_name": r[2]} for r in rows]
+
+def get_book_by_hash(file_hash: str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_hash, book_name, cache_name FROM library WHERE file_hash LIKE ?", (file_hash + "%",))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {"file_hash": row[0], "book_name": row[1], "cache_name": row[2]}
+    return None
+
+def update_book_cache(file_hash: str, new_cache_name: str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE library SET cache_name = ? WHERE file_hash = ?", (new_cache_name, file_hash))
+    conn.commit()
+    conn.close()
 
 def save_user_session(user_id: int, cache_name: str) -> None:
     conn = sqlite3.connect(DB_FILE)
