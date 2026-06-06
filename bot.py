@@ -144,8 +144,8 @@ async def on_startup(bot: Bot) -> None:
     logger.info(f"Webhook set to: {webhook_url}")
 
 async def on_shutdown(bot: Bot) -> None:
-    await bot.delete_webhook()
-    logger.info("Webhook deleted.")
+    # Do not delete webhook on shutdown to avoid race condition during Render zero-downtime deploys
+    logger.info("Shutdown initiated. Webhook left intact.")
 
 if __name__ == "__main__":
     render_url = os.getenv("RENDER_EXTERNAL_URL")
