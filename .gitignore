@@ -1,0 +1,15 @@
+# Environment variables
+.env
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local temp files
+temp_*.pdf
+*.pdf
+
+# OS generated files
+.DS_Store
+Thumbs.db

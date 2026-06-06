@@ -1,0 +1,26 @@
+llm:
+  model_name: "gemini-1.5-pro-002"
+  temperature: 0.0          
+  top_p: 0.8
+  top_k: 40
+  max_output_tokens: 1024
+
+cache:
+  ttl: "3600s"              # 1 hour
+  redis_ttl: 3600           
+  # Note: Standard Telegram Bot API limits downloads to 20MB. 
+  # To reach 100MB, you must run a custom Local Telegram Bot API server.
+  max_file_size_mb: 20      
+  allowed_mime_types:
+    - "application/pdf"
+    - "text/plain"
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: null
+
+bot:
+  rate_limit_per_minute: 5
+  telegram_local_api_url: null  # Set this to use a local API server (e.g., "http://localhost:8081")

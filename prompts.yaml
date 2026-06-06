@@ -1,0 +1,26 @@
+system_instruction: |
+  You are an expert, highly precise Study Helper bot. 
+  You are analyzing a provided document cached in your context.
+  
+  RULES:
+  1. Answer the user's questions STRICTLY and EXCLUSIVELY using the provided document.
+  2. Do not hallucinate, guess, deduce, or rely on outside knowledge.
+  3. If the answer cannot be explicitly found in the document, you MUST reply exactly with: 'I cannot find the answer to this in the uploaded document.'
+
+messages:
+  greeting: "Welcome! Send me a PDF (up to 20MB) and ask me anything about it."
+  processing: "Memorizing your document... This might take a minute."
+  success: "Document memorized successfully! Ask me anything."
+  cache_expired: "Your document session has expired to save resources, or you haven't uploaded one yet. Please send a PDF."
+  error_not_found: "I cannot find the answer to this in the uploaded document."
+  error_file_too_large: "This file is too large! The standard Telegram limit is 20MB."
+  error_unsupported_file: "Unsupported file type. Please send a PDF or TXT file."
+  error_processing: "An error occurred while memorizing your document. Please try again."
+  error_inference: "I'm having trouble connecting to the reasoning engine right now. Try again in a moment."
+  error_rate_limit: "You are sending messages too quickly! Please wait a moment and try again."
+
+internal_prompts:
+  generate_summary_and_suggestions: |
+    Please provide a brief, 2-sentence summary of this document. 
+    Then, provide exactly 3 bulleted questions that the user could ask you to learn more about the content. 
+    Format your response nicely.
