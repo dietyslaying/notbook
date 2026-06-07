@@ -4,8 +4,6 @@ import logging
 from google import genai
 from google.genai import types
 from pinecone import Pinecone
-from google.genai import types
-from pinecone import Pinecone
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,9 @@ if PINECONE_API_KEY:
     index = pc.Index(config['pinecone']['index_name'])
 else:
     logger.warning("PINECONE_API_KEY not found in environment!")
+    pc = None
     index = None
+
 
 def get_available_books() -> list:
     """Fetches namespaces from Pinecone to populate the library menu."""
@@ -37,57 +37,67 @@ def get_available_books() -> list:
         logger.error(f"Failed to fetch Pinecone namespaces: {e}")
         return []
 
+
 def query_rag(namespace: str, user_question: str, chat_history: list = None) -> str:
-    """Queries Pinecone for context and then asks Gemini."""
+    """Queries Pinecone for context and then asks Gemini to synthesise an answer."""
     if not index:
         return "System error: Database not connected."
-        
+
     try:
-        # 1. Embed the user's question using Pinecone Inference API
-        response = pc.inference.embed(
+        # 1. Embed the user's question
+        embed_response = pc.inference.embed(
             model=config['pinecone']['embedding_model'],
             inputs=[user_question],
             parameters={"input_type": "query"}
         )
-        query_embedding = response[0].values
-        
-        # 2. Search Pinecone for top 5 relevant chunks
+        query_embedding = embed_response[0].values
+
+        # 2. Search Pinecone — top_k=8 gives the model more material to work with
         search_results = index.query(
             namespace=namespace,
             vector=query_embedding,
-            top_k=5,
+            top_k=8,
             include_metadata=True
         )
-        
+
         if not search_results.matches:
             return prompts['messages']['error_not_found']
-            
-        # 3. Assemble the retrieved context
-        context_text = "\n\n---\n\n".join([match.metadata["text"] for match in search_results.matches])
-        
-        # 4. Construct prompt for Gemini
+
+        # 3. Assemble context, filtering out very low-scoring matches (< 0.65)
+        good_matches = [m for m in search_results.matches if m.score >= 0.65]
+        if not good_matches:
+            good_matches = search_results.matches  # fall back to all if all are low
+
+        context_text = "\n\n---\n\n".join(
+            [f"[Excerpt {i+1}]\n{m.metadata['text']}" for i, m in enumerate(good_matches)]
+        )
+
+        # 4. Build the Gemini prompt
         system_msg = prompts['system_instruction']
-        
-        full_prompt = f"Here is the retrieved context from the document:\n{context_text}\n\nUser Question: {user_question}"
-        
+        full_prompt = (
+            f"Here are the most relevant excerpts from the textbook:\n\n"
+            f"{context_text}\n\n"
+            f"---\n\nUser question: {user_question}"
+        )
+
         contents = []
         if chat_history:
-            for msg in chat_history:
+            for msg in chat_history[-6:]:  # keep last 3 turns to avoid token bloat
                 contents.append(
                     types.Content(
                         role=msg["role"],
                         parts=[types.Part.from_text(text=msg["text"])]
                     )
                 )
-                
+
         contents.append(
             types.Content(
                 role="user",
                 parts=[types.Part.from_text(text=full_prompt)]
             )
         )
-        
-        # 5. Generate final answer
+
+        # 5. Generate answer
         response = client.models.generate_content(
             model=config['llm']['model_name'],
             contents=contents,
@@ -99,12 +109,12 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
                 max_output_tokens=config['llm']['max_output_tokens']
             )
         )
-        
+
         if not response.text:
             return prompts['messages']['error_not_found']
-            
+
         return response.text
-        
+
     except Exception as e:
         logger.error(f"RAG Inference failed: {e}")
         raise e

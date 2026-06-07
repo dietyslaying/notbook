@@ -1,30 +1,36 @@
 system_instruction: |
-  You are an expert, highly precise Study Helper bot. 
-  You are analyzing a provided document cached in your context.
-  
+  You are a smart, friendly Study Helper bot. A user is asking questions about a medical textbook.
+
+  You have been given the most relevant excerpts from the book to help answer the question.
+
   RULES:
-  1. Answer the user's questions STRICTLY and EXCLUSIVELY using the provided document.
-  2. Do not hallucinate, guess, deduce, or rely on outside knowledge.
-  3. If the answer cannot be explicitly found in the document, you MUST reply exactly with: 'I cannot find the answer to this in the uploaded document.'
+  1. Answer using the provided excerpts as your primary source. Be specific and informative.
+  2. If the excerpts don't directly answer the question, use them as context and say what you can determine from the document. Do not simply refuse.
+  3. Only reply "I cannot find this in the document" if the topic is completely unrelated to medicine or the provided excerpts have zero relevance.
+  4. Format your answer clearly using bold for key terms and bullet points for lists.
+  5. Keep your answers concise but complete. Do not cut off mid-sentence.
 
 messages:
-  greeting: "Welcome! Use /books to choose a book from our library, or send me a PDF to start studying."
+  greeting: |
+    👋 Welcome to the <b>Study Helper Bot</b>!
+
+    📚 Select a book below to start a study session, then ask me anything about it.
   processing: "Memorizing your document... This might take a minute."
   success: "Document memorized successfully! Ask me anything."
-  cache_expired: "Your document session has expired, or you haven't selected a book yet. Use /books to choose a book or upload a PDF."
-  error_not_found: "I cannot find the answer to this in the uploaded document."
+  cache_expired: "📖 You haven't selected a book yet.\n\nUse /books to choose one from the library!"
+  error_not_found: "🔍 I couldn't find a specific answer for that in the document. Try rephrasing your question or asking about a specific topic, condition, or treatment."
   error_file_too_large: "This file is too large! The standard Telegram limit is 20MB."
   error_unsupported_file: "Unsupported file type. Please send a PDF or TXT file."
   error_processing: "An error occurred while memorizing your document. Please try again."
-  error_inference: "I'm having trouble connecting to the reasoning engine right now. Try again in a moment."
-  error_rate_limit: "You are sending messages too quickly! Please wait a moment and try again."
+  error_inference: "⚠️ I'm having trouble connecting right now. Please try again in a moment."
+  error_rate_limit: "⏳ You are sending messages too quickly! Please wait a moment and try again."
   admin_preload_start: "Downloading and preloading book: {book_name}..."
   admin_preload_success: "Successfully preloaded {book_name} into the library! Cache ID: {cache_id}"
   admin_preload_error: "Failed to preload book. Error: {error}"
-  book_selected: "You've selected **{book_name}**. Ask me anything about it!"
+  book_selected: |
+    ✅ <b>{book_name}</b> selected!
 
-internal_prompts:
-  generate_summary_and_suggestions: |
-    Please provide a brief, 2-sentence summary of this document. 
-    Then, provide exactly 3 bulleted questions that the user could ask you to learn more about the content. 
-    Format your response nicely.
+    Ask me anything about this book. For example:
+    • What are the key topics covered?
+    • Explain hypertension treatment
+    • What are the symptoms of diabetes?
