@@ -1,127 +1,129 @@
-import sqlite3
-import yaml
-import logging
 import json
+import logging
 import os
+import yaml
+from pinecone import Pinecone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
-DB_FILE = "sessions.db"
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index_name = config['pinecone']['index_name']
+index = pc.Index(index_name)
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            user_id INTEGER PRIMARY KEY,
-            cache_name TEXT,
-            chat_history TEXT
+NAMESPACE = "_user_sessions"
+
+# In-memory fast cache so we don't hit Pinecone API on every single message
+_session_cache = {}
+
+def _get_vector_id(user_id: int) -> str:
+    return f"user_{user_id}"
+
+def _fetch_from_pinecone(user_id: int) -> dict:
+    try:
+        response = index.fetch(ids=[_get_vector_id(user_id)], namespace=NAMESPACE)
+        if response and response.vectors:
+            return response.vectors[_get_vector_id(user_id)].metadata
+    except Exception as e:
+        logger.error(f"Pinecone fetch error for user {user_id}: {e}")
+    return {}
+
+def _save_to_pinecone(user_id: int, metadata: dict):
+    try:
+        # We must provide a dummy vector of the correct dimension (1024)
+        dummy_vector = [0.0] * 1024
+        
+        # Pinecone metadata values must be strings, numbers, booleans, or lists of strings
+        # So we must serialize complex objects like chat history to a JSON string
+        safe_metadata = {}
+        for k, v in metadata.items():
+            if isinstance(v, (dict, list)):
+                safe_metadata[k] = json.dumps(v)
+            else:
+                safe_metadata[k] = v
+                
+        index.upsert(
+            vectors=[{"id": _get_vector_id(user_id), "values": dummy_vector, "metadata": safe_metadata}],
+            namespace=NAMESPACE
         )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS library (
-            file_hash TEXT PRIMARY KEY,
-            book_name TEXT,
-            cache_name TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+    except Exception as e:
+        logger.error(f"Pinecone upsert error for user {user_id}: {e}")
 
-# Initialize the database on startup
-init_db()
-
-def add_to_library(file_hash: str, book_name: str, cache_name: str):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO library (file_hash, book_name, cache_name) 
-        VALUES (?, ?, ?)
-        ON CONFLICT(file_hash) DO UPDATE SET book_name=excluded.book_name, cache_name=excluded.cache_name, timestamp=CURRENT_TIMESTAMP
-    """, (file_hash, book_name, cache_name))
-    conn.commit()
-    conn.close()
-
-def get_library_books():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT file_hash, book_name, cache_name FROM library ORDER BY timestamp DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"file_hash": r[0], "book_name": r[1], "cache_name": r[2]} for r in rows]
-
-def get_book_by_hash(file_hash: str):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT file_hash, book_name, cache_name FROM library WHERE file_hash LIKE ?", (file_hash + "%",))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return {"file_hash": row[0], "book_name": row[1], "cache_name": row[2]}
-    return None
-
-def update_book_cache(file_hash: str, new_cache_name: str):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE library SET cache_name = ? WHERE file_hash = ?", (new_cache_name, file_hash))
-    conn.commit()
-    conn.close()
-
-def save_user_session(user_id: int, cache_name: str) -> None:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO sessions (user_id, cache_name, chat_history) 
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET cache_name=excluded.cache_name
-    """, (user_id, cache_name, "[]"))
-    conn.commit()
-    conn.close()
+def save_user_session(user_id: int, book_name: str) -> None:
+    # 1. Read existing metadata so we don't overwrite chat history
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+    
+    # 2. Update book_name
+    metadata["book_name"] = book_name
+    _session_cache[user_id] = metadata
+    
+    # 3. Save
+    _save_to_pinecone(user_id, metadata)
 
 def get_user_session(user_id: int) -> str | None:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT cache_name FROM sessions WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and row[0]:
-        return row[0]
-    return None
-
-def clear_user_session(user_id: int) -> None:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+        _session_cache[user_id] = metadata
+        
+    return metadata.get("book_name")
 
 def get_chat_history(user_id: int) -> list:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT chat_history FROM sessions WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and row[0]:
-        return json.loads(row[0])
-    return []
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+        _session_cache[user_id] = metadata
+        
+    history_raw = metadata.get("chat_history", "[]")
+    if isinstance(history_raw, str):
+        try:
+            return json.loads(history_raw)
+        except Exception:
+            return []
+    return history_raw
 
 def add_to_chat_history(user_id: int, role: str, text: str) -> None:
-    history = get_chat_history(user_id)
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+        
+    history = metadata.get("chat_history", "[]")
+    if isinstance(history, str):
+        try:
+            history = json.loads(history)
+        except Exception:
+            history = []
+            
     history.append({"role": role, "text": text})
     
     # Keep only the last 10 turns (20 messages)
     if len(history) > 20:
         history = history[-20:]
         
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE sessions SET chat_history = ? WHERE user_id = ?
-    """, (json.dumps(history), user_id))
-    conn.commit()
-    conn.close()
+    metadata["chat_history"] = history
+    _session_cache[user_id] = metadata
+    
+    _save_to_pinecone(user_id, metadata)
+
+# These old SQLite functions are no longer needed, 
+# as the library is dynamically generated from Pinecone namespaces
+def add_to_library(file_hash: str, book_name: str, cache_name: str):
+    pass
+def get_library_books():
+    return []
+def get_book_by_hash(file_hash: str):
+    return None
+def update_book_cache(file_hash: str, new_cache_name: str):
+    pass
+def clear_user_session(user_id: int):
+    _session_cache.pop(user_id, None)
+    try:
+        index.delete(ids=[_get_vector_id(user_id)], namespace=NAMESPACE)
+    except Exception:
+        pass
