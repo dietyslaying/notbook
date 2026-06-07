@@ -246,12 +246,27 @@ async def callback_page(callback: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("book|"))
 async def callback_book(callback: CallbackQuery):
-    # Use pipe delimiter so book names with underscores/spaces are preserved in full
     namespace = callback.data.split("|", 1)[1]
     user_id = callback.from_user.id
+
+    # Security: verify this namespace is accessible to this user
+    allowed = gemini_service.get_available_books(user_id)
+    allowed_namespaces = [ns for ns, _ in allowed]
+    if namespace not in allowed_namespaces:
+        await callback.answer("⛔ You don't have access to this book.", show_alert=True)
+        return
+
     session_manager.save_user_session(user_id, namespace)
 
-    msg = prompts['messages']['book_selected'].format(book_name=namespace)
+    # Show just the clean book name (strip user_id prefix or global| prefix)
+    if f"{user_id}|" in namespace:
+        display_name = namespace.split("|", 1)[1]
+    elif namespace.startswith("global|"):
+        display_name = namespace[len("global|"):]
+    else:
+        display_name = namespace
+
+    msg = prompts['messages']['book_selected'].format(book_name=display_name)
     await callback.message.answer(msg, parse_mode=ParseMode.HTML)
     await callback.answer()
 
