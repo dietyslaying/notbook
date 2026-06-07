@@ -10,7 +10,7 @@ from pinecone import Pinecone, ServerlessSpec
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")

@@ -7,10 +7,10 @@ from pinecone import Pinecone
 
 logger = logging.getLogger(__name__)
 
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
-with open("prompts.yaml", "r") as f:
+with open("prompts.yaml", "r", encoding="utf-8") as f:
     prompts = yaml.safe_load(f)
 
 client = genai.Client()
