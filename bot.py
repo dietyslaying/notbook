@@ -402,6 +402,8 @@ async def handle_question(message: Message):
                     parse_mode=ParseMode.HTML
                 )
         else:
+            if len(error_msg) > 2000:
+                error_msg = error_msg[:2000] + "\n...[truncated]"
             await message.answer(prompts['messages']['error_inference'] + f"\n\n<pre>{html.escape(error_msg)}</pre>", parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
