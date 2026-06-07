@@ -32,14 +32,31 @@ else:
     index = None
 
 
-def get_available_books() -> list:
-    """Fetches namespaces from Pinecone to populate the library menu."""
+def get_available_books(user_id: int = None) -> list:
+    """Fetches namespaces from Pinecone to populate the library menu.
+    Returns: list of (namespace, display_name)"""
     if not index:
         return []
     try:
         stats = index.describe_index_stats()
         namespaces = stats.get("namespaces", {})
-        return [ns for ns in namespaces.keys() if ns and not ns.startswith("_")]
+        
+        books = []
+        user_prefix = f"{user_id}|" if user_id else None
+        
+        for ns in namespaces.keys():
+            if ns.startswith("_"):
+                continue
+                
+            if user_prefix and ns.startswith(user_prefix):
+                books.append((ns, ns[len(user_prefix):]))
+            elif ns.startswith("global|"):
+                books.append((ns, ns[len("global|"):]))
+            elif "|" not in ns:
+                # Legacy un-prefixed namespaces are global
+                books.append((ns, ns))
+                
+        return books
     except Exception as e:
         logger.error(f"Failed to fetch Pinecone namespaces: {e}")
         return []

@@ -137,8 +137,15 @@ async def keep_typing(chat_id: int, bot: Bot):
 # Library keyboard  (defined before cmd_start so it can be called from it)
 # ---------------------------------------------------------------------------
 
-def get_library_keyboard(page: int = 0) -> InlineKeyboardMarkup:
-    books = gemini_service.get_available_books()
+def get_main_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(text="📚 Books", callback_data="open_books")],
+        [InlineKeyboardButton(text="📝 Topics", callback_data="open_modes")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_library_keyboard(user_id: int, page: int = 0) -> InlineKeyboardMarkup:
+    books = gemini_service.get_available_books(user_id)
     items_per_page = 8
     total_pages = math.ceil(len(books) / items_per_page) if books else 1
 
@@ -147,9 +154,9 @@ def get_library_keyboard(page: int = 0) -> InlineKeyboardMarkup:
 
     keyboard = []
     row = []
-    for book in page_books:
-        display = book[:28]
-        btn = InlineKeyboardButton(text=f"📖 {display}", callback_data=f"book|{book}")
+    for raw_ns, display_name in page_books:
+        display = display_name[:28]
+        btn = InlineKeyboardButton(text=f"📖 {display}", callback_data=f"book|{raw_ns}")
         row.append(btn)
         if len(row) == 2:
             keyboard.append(row)
@@ -165,7 +172,7 @@ def get_library_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton(text="📝 Study Modes", callback_data="open_modes")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -176,23 +183,18 @@ def get_library_keyboard(page: int = 0) -> InlineKeyboardMarkup:
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     greeting = prompts['messages']['greeting']
-    books = gemini_service.get_available_books()
-    if books:
-        await message.answer(greeting, parse_mode=ParseMode.HTML,
-                             reply_markup=get_library_keyboard(0))
-    else:
-        await message.answer(greeting, parse_mode=ParseMode.HTML)
+    await message.answer(greeting, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard())
 
 
 @dp.message(Command("books", "library"))
 async def cmd_books(message: Message):
-    books = gemini_service.get_available_books()
+    books = gemini_service.get_available_books(message.from_user.id)
     if not books:
         await message.answer("📭 The library is empty. Ask the admin to add books!")
         return
     await message.answer("📚 <b>Library</b>\nSelect a book to start your study session:",
                          parse_mode=ParseMode.HTML,
-                         reply_markup=get_library_keyboard(0))
+                         reply_markup=get_library_keyboard(message.from_user.id, 0))
 
 
 @dp.message(F.document)
@@ -202,6 +204,16 @@ async def handle_document(message: Message):
         parse_mode=ParseMode.HTML
     )
 
+@dp.callback_query(F.data == "open_main")
+async def callback_open_main(callback: CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=get_main_keyboard())
+    await callback.answer()
+
+@dp.callback_query(F.data == "open_books")
+async def callback_open_books(callback: CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(callback.from_user.id, 0))
+    await callback.answer()
+
 
 @dp.callback_query(F.data == "open_modes")
 async def callback_open_modes(callback: CallbackQuery):
@@ -210,7 +222,7 @@ async def callback_open_modes(callback: CallbackQuery):
         [InlineKeyboardButton(text="❓ Quiz Mode", callback_data="setmode|quiz")],
         [InlineKeyboardButton(text="🗂️ Flashcards Mode", callback_data="setmode|flashcards")],
         [InlineKeyboardButton(text="📝 Notes Mode", callback_data="setmode|notes")],
-        [InlineKeyboardButton(text="⬅️ Back to Books", callback_data="page|0")]
+        [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]
     ]
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
     await callback.answer()
@@ -222,13 +234,13 @@ async def callback_setmode(callback: CallbackQuery):
     session_manager.set_user_mode(user_id, mode)
     
     msg = f"✅ Study Mode set to <b>{mode.title()}</b>!\nAsk me a question to begin."
-    await callback.message.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Books", callback_data="page|0")]]))
+    await callback.message.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]]))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("page|"))
 async def callback_page(callback: CallbackQuery):
     page = int(callback.data.split("|")[1])
-    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(page))
+    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(callback.from_user.id, page))
     await callback.answer()
 
 

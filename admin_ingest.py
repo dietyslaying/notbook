@@ -214,11 +214,13 @@ def embed_with_retry(texts: list[str], max_retries: int = 5) -> list:
 # Main ingestion
 # ---------------------------------------------------------------------------
 
-def ingest_pdf(pdf_path: str, namespace: str):
+def ingest_pdf(pdf_path: str, namespace: str, user_id: str = None):
     index = init_pinecone()
+    
+    target_namespace = f"{user_id}|{namespace}" if user_id else f"global|{namespace}"
 
     # 1. Wipe the existing namespace so we start fresh
-    delete_namespace(index, namespace)
+    delete_namespace(index, target_namespace)
 
     # 2. Extract pages (skipping indexes, abbreviations, etc.)
     logger.info(f"Reading PDF: {pdf_path}")
@@ -243,20 +245,22 @@ def ingest_pdf(pdf_path: str, namespace: str):
         vectors = []
         for j, embedding in enumerate(embeddings):
             chunk_idx = i + j
+            metadata = {
+                "text": batch[j]['text'],
+                "page": batch[j]['page'],
+                "source": os.path.basename(pdf_path)
+            }
+                
             vectors.append({
                 "id": f"chunk_{chunk_idx}",
                 "values": embedding.values,
-                "metadata": {
-                    "text": batch[j]['text'],
-                    "page": batch[j]['page'],
-                    "source": os.path.basename(pdf_path)
-                }
+                "metadata": metadata
             })
 
-        index.upsert(vectors=vectors, namespace=namespace)
+        index.upsert(vectors=vectors, namespace=target_namespace)
 
     logger.info(f"\n✅ Successfully ingested '{os.path.basename(pdf_path)}' "
-                f"({len(chunks)} chunks) into namespace '{namespace}'.")
+                f"({len(chunks)} chunks) into namespace '{target_namespace}'.")
 
 
 # ---------------------------------------------------------------------------
@@ -267,10 +271,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingest a PDF into Pinecone for RAG.")
     parser.add_argument("pdf_path", help="Path to the PDF file")
     parser.add_argument("book_name", help="Name of the book (used as the Pinecone namespace)")
+    parser.add_argument("--user_id", help="Telegram User ID to restrict access to", default=None)
     args = parser.parse_args()
 
     if not os.path.exists(args.pdf_path):
         logger.error(f"File not found: {args.pdf_path}")
         exit(1)
 
-    ingest_pdf(args.pdf_path, args.book_name)
+    ingest_pdf(args.pdf_path, args.book_name, args.user_id)
