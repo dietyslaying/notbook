@@ -117,12 +117,14 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
         if chat_history:
             for msg in chat_history[-6:]:
                 role = "user" if msg['role'] == "user" else "model"
-                contents.append({"role": role, "parts": [msg['text']]})
+                contents.append(types.Content(role=role, parts=[msg['text']]))
 
-        contents.append({
-            "role": "user",
-            "parts": [f"Question: {user_question}\n\nRelevant Excerpts from textbook:\n{context_text}"]
-        })
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[f"Question: {user_question}\n\nRelevant Excerpts from textbook:\n{context_text}"]
+            )
+        )
 
         gemini_config = types.GenerateContentConfig(
             system_instruction=system_msg,
