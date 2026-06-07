@@ -139,6 +139,11 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
                         wait = int(float(m.group(1) or m.group(2))) + 2
                     else:
                         wait = 30 * (attempt + 1)  # 30s, 60s, 90s
+                    
+                    if wait > 15:
+                        logger.warning(f"Gemini rate limited with long wait ({wait}s). Failing fast to avoid webhook timeout.")
+                        raise RuntimeError("RATE_LIMIT_EXCEEDED")
+                        
                     logger.warning(f"Gemini rate limited. Waiting {wait}s (attempt {attempt+1}/{max_gemini_retries})…")
                     import time as _time
                     _time.sleep(wait)

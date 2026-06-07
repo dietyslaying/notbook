@@ -243,7 +243,8 @@ async def callback_continue(callback: CallbackQuery):
     try:
         history = session_manager.get_chat_history(user_id)
         # Ask Gemini to continue exactly where it left off
-        answer, is_complete = gemini_service.query_rag(
+        answer, is_complete = await asyncio.to_thread(
+            gemini_service.query_rag,
             namespace,
             "Please continue your previous answer. Pick up exactly where you left off and finish your explanation.",
             history
@@ -274,7 +275,10 @@ async def callback_continue(callback: CallbackQuery):
         except Exception:
             pass
         logger.error(f"Continue error for user {user_id}: {e}")
-        await callback.message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
+        if "RATE_LIMIT_EXCEEDED" in str(e):
+            await callback.message.answer("⏳ The AI is currently at maximum capacity. Please wait about 1 minute and try again.", parse_mode=ParseMode.HTML)
+        else:
+            await callback.message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
 
@@ -298,7 +302,9 @@ async def handle_question(message: Message):
 
     try:
         history = session_manager.get_chat_history(user_id)
-        answer, is_complete = gemini_service.query_rag(namespace, message.text, history)
+        answer, is_complete = await asyncio.to_thread(
+            gemini_service.query_rag, namespace, message.text, history
+        )
 
         session_manager.add_to_chat_history(user_id, "user", message.text)
         session_manager.add_to_chat_history(user_id, "model", answer)
@@ -334,10 +340,13 @@ async def handle_question(message: Message):
         if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
             m = re.search(r'retry in ([\d\.]+)s', error_msg)
             wait = int(float(m.group(1))) + 1 if m else 30
-            await message.answer(
-                f"⏳ You're asking too fast! Please wait <b>{wait}s</b> and try again.",
-                parse_mode=ParseMode.HTML
-            )
+            if wait > 60:
+                await message.answer("⏳ The AI is currently too busy. Please try again in a minute.", parse_mode=ParseMode.HTML)
+            else:
+                await message.answer(
+                    f"⏳ You're asking too fast! Please wait <b>{wait}s</b> and try again.",
+                    parse_mode=ParseMode.HTML
+                )
         else:
             await message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
     finally:
