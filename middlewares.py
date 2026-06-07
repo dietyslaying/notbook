@@ -5,10 +5,10 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message
 from typing import Callable, Dict, Any, Awaitable
 
-with open("config.yaml", "r") as f:
+with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
-with open("prompts.yaml", "r") as f:
+with open("prompts.yaml", "r", encoding="utf-8") as f:
     prompts = yaml.safe_load(f)
 
 RATE_LIMIT = config.get('bot', {}).get('rate_limit_per_minute', 5)

@@ -103,6 +103,9 @@ THINKING_FRAMES = [
     "🔬  Examining the medical literature…",
     "📖  Almost there, just one more page…",
     "🗃️  Retrieving from the stacks…",
+    "🧠  Synthesising the findings…",
+    "✍️  Composing your answer…",
+    "📖  Still with you, this one's thorough…",
 ]
 
 async def animated_thinking(placeholder_msg, stop_event: asyncio.Event):

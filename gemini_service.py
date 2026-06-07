@@ -110,18 +110,43 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
             )
         )
 
-        # 5. Generate answer
-        response = client.models.generate_content(
-            model=config['llm']['model_name'],
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_msg,
-                temperature=config['llm']['temperature'],
-                top_p=config['llm']['top_p'],
-                top_k=config['llm']['top_k'],
-                max_output_tokens=config['llm']['max_output_tokens']
-            )
+        # 5. Generate answer — with transparent auto-retry on Gemini rate limits
+        gemini_config = types.GenerateContentConfig(
+            system_instruction=system_msg,
+            temperature=config['llm']['temperature'],
+            top_p=config['llm']['top_p'],
+            top_k=config['llm']['top_k'],
+            max_output_tokens=config['llm']['max_output_tokens']
         )
+
+        response = None
+        max_gemini_retries = 3
+        for attempt in range(max_gemini_retries):
+            try:
+                response = client.models.generate_content(
+                    model=config['llm']['model_name'],
+                    contents=contents,
+                    config=gemini_config
+                )
+                break  # success — exit retry loop
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    # Parse Gemini's own suggested wait time, default to 30s
+                    import re as _re
+                    m = _re.search(r'retry[_ ]after[=\s]+(\d+)|retry in ([\d.]+)s', err, _re.IGNORECASE)
+                    if m:
+                        wait = int(float(m.group(1) or m.group(2))) + 2
+                    else:
+                        wait = 30 * (attempt + 1)  # 30s, 60s, 90s
+                    logger.warning(f"Gemini rate limited. Waiting {wait}s (attempt {attempt+1}/{max_gemini_retries})…")
+                    import time as _time
+                    _time.sleep(wait)
+                    if attempt == max_gemini_retries - 1:
+                        raise  # all retries exhausted — propagate to bot error handler
+                else:
+                    raise  # non-rate-limit error — propagate immediately
+
 
         if not response.text:
             return (prompts['messages']['error_not_found'], True)
