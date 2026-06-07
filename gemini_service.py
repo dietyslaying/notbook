@@ -13,7 +13,14 @@ with open("config.yaml", "r", encoding="utf-8") as f:
 with open("prompts.yaml", "r", encoding="utf-8") as f:
     prompts = yaml.safe_load(f)
 
-client = genai.Client()
+api_keys_str = os.getenv("GEMINI_API_KEYS", "")
+api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+
+if not api_keys:
+    clients = [genai.Client()]
+else:
+    clients = [genai.Client(api_key=key) for key in api_keys]
+current_client_idx = 0
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 if PINECONE_API_KEY:
@@ -108,27 +115,37 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
             max_output_tokens=config['llm']['max_output_tokens']
         )
 
-        try:
-            response_stream = await client.aio.models.generate_content_stream(
-                model=config['llm']['model_name'],
-                contents=contents,
-                config=gemini_config
-            )
-            
-            async for chunk in response_stream:
-                if chunk.text:
-                    is_complete = None
-                    if chunk.candidates and chunk.candidates[0].finish_reason:
-                        fr = str(chunk.candidates[0].finish_reason)
-                        if fr not in ("FinishReason.FINISH_REASON_UNSPECIFIED", "0", "None", "", "Unspecified"):
-                            is_complete = fr in ("FinishReason.STOP", "STOP", "1")
-                    yield (chunk.text, is_complete)
-        except Exception as e:
-            err = str(e)
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                raise RuntimeError("RATE_LIMIT_EXCEEDED")
-            else:
-                raise
+        global current_client_idx
+        max_gemini_retries = len(clients)
+        
+        for attempt in range(max_gemini_retries):
+            client = clients[current_client_idx]
+            try:
+                response_stream = await client.aio.models.generate_content_stream(
+                    model=config['llm']['model_name'],
+                    contents=contents,
+                    config=gemini_config
+                )
+                
+                async for chunk in response_stream:
+                    if chunk.text:
+                        is_complete = None
+                        if chunk.candidates and chunk.candidates[0].finish_reason:
+                            fr = str(chunk.candidates[0].finish_reason)
+                            if fr not in ("FinishReason.FINISH_REASON_UNSPECIFIED", "0", "None", "", "Unspecified"):
+                                is_complete = fr in ("FinishReason.STOP", "STOP", "1")
+                        yield (chunk.text, is_complete)
+                        
+                break # Success, exit retry loop
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    logger.warning(f"Client {current_client_idx} rate limited. Rotating key...")
+                    current_client_idx = (current_client_idx + 1) % len(clients)
+                    if attempt == max_gemini_retries - 1:
+                        raise RuntimeError("RATE_LIMIT_EXCEEDED")
+                else:
+                    raise
 
     except Exception as e:
         logger.error(f"RAG Inference failed: {e}")
