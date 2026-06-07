@@ -4,9 +4,11 @@ import yaml
 import logging
 import asyncio
 import math
+import html
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.filters import CommandStart, Command
+from aiogram.enums import ParseMode
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -45,9 +47,45 @@ async def keep_typing(chat_id: int, bot: Bot):
     except asyncio.CancelledError:
         pass
 
+def format_for_telegram(text: str) -> str:
+    """Converts Gemini Markdown to Telegram HTML format."""
+    text = html.escape(text)
+    # Replace **bold** with <b>bold</b>
+    text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
+    # Replace headers ## Header with <b>Header</b>
+    text = re.sub(r'^#+\s+(.*)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    # Code blocks
+    text = re.sub(r'```(?:.*?)\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
+    text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
+    return text
+
+async def send_paginated(message: Message, text: str):
+    """Splits long text and sends as multiple HTML messages."""
+    MAX_LEN = 3900
+    formatted_text = format_for_telegram(text)
+    
+    if len(formatted_text) <= MAX_LEN:
+        await message.answer(formatted_text, parse_mode=ParseMode.HTML)
+        return
+        
+    paragraphs = formatted_text.split('\n\n')
+    current_msg = ""
+    for p in paragraphs:
+        if len(current_msg) + len(p) + 2 > MAX_LEN:
+            await message.answer(current_msg, parse_mode=ParseMode.HTML)
+            current_msg = p + "\n\n"
+        else:
+            current_msg += p + "\n\n"
+    if current_msg.strip():
+        await message.answer(current_msg, parse_mode=ParseMode.HTML)
+
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(prompts['messages']['greeting'])
+    books = gemini_service.get_available_books()
+    if not books:
+        await message.answer(prompts['messages']['greeting'])
+    else:
+        await message.answer(prompts['messages']['greeting'] + "\n\nPlease select a book to start:", reply_markup=get_library_keyboard(0))
 
 @dp.message(F.document)
 async def handle_document(message: Message):
@@ -109,7 +147,7 @@ async def callback_book(callback: CallbackQuery):
     session_manager.save_user_session(user_id, namespace)
     
     msg = prompts['messages'].get('book_selected', "You've selected **{book_name}**. Ask me anything about it!").format(book_name=namespace)
-    await callback.message.answer(msg)
+    await callback.message.answer(format_for_telegram(msg), parse_mode=ParseMode.HTML)
     await callback.answer()
 
 @dp.message(F.text)
@@ -133,7 +171,7 @@ async def handle_question(message: Message):
         session_manager.add_to_chat_history(user_id, "user", message.text)
         session_manager.add_to_chat_history(user_id, "model", answer)
         
-        await message.answer(answer)
+        await send_paginated(message, answer)
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Inference error for user {user_id}: {error_msg}")

@@ -3,7 +3,7 @@ llm:
   temperature: 0.0          
   top_p: 0.8
   top_k: 40
-  max_output_tokens: 1024
+  max_output_tokens: 2048
 
 cache:
   ttl: "3600s"              # 1 hour
