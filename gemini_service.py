@@ -32,7 +32,7 @@ def get_available_books() -> list:
     try:
         stats = index.describe_index_stats()
         namespaces = stats.get("namespaces", {})
-        return list(namespaces.keys())
+        return [ns for ns in namespaces.keys() if ns and not ns.startswith("_")]
     except Exception as e:
         logger.error(f"Failed to fetch Pinecone namespaces: {e}")
         return []

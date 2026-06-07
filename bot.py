@@ -348,7 +348,7 @@ async def handle_question(message: Message):
                     parse_mode=ParseMode.HTML
                 )
         else:
-            await message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
+            await message.answer(prompts['messages']['error_inference'] + f"\n\n<pre>{html.escape(error_msg)}</pre>", parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
 
