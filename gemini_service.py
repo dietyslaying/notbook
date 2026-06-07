@@ -38,10 +38,15 @@ def get_available_books() -> list:
         return []
 
 
-def query_rag(namespace: str, user_question: str, chat_history: list = None) -> str:
-    """Queries Pinecone for context and then asks Gemini to synthesise an answer."""
+def query_rag(namespace: str, user_question: str, chat_history: list = None) -> tuple[str, bool]:
+    """Queries Pinecone for context and then asks Gemini to synthesise an answer.
+
+    Returns:
+        (answer_text, is_complete) — is_complete is True if Gemini finished naturally,
+        False if it was cut off by the token limit.
+    """
     if not index:
-        return "System error: Database not connected."
+        return ("System error: Database not connected.", True)
 
     try:
         # 1. Embed the user's question
@@ -61,7 +66,7 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
         )
 
         if not search_results.matches:
-            return prompts['messages']['error_not_found']
+            return (prompts['messages']['error_not_found'], True)
 
         # 3. Assemble context, filtering out very low-scoring matches (< 0.65)
         good_matches = [m for m in search_results.matches if m.score >= 0.65]
@@ -111,10 +116,20 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
         )
 
         if not response.text:
-            return prompts['messages']['error_not_found']
+            return (prompts['messages']['error_not_found'], True)
 
-        return response.text
+        # Check if Gemini finished naturally or was cut off by token limit
+        is_complete = True
+        try:
+            finish_reason = response.candidates[0].finish_reason
+            # finish_reason value 2 = MAX_TOKENS (cut off), 1 = STOP (natural end)
+            is_complete = str(finish_reason) in ("FinishReason.STOP", "STOP", "1")
+        except Exception:
+            pass  # if we can't check, assume complete
+
+        return (response.text, is_complete)
 
     except Exception as e:
         logger.error(f"RAG Inference failed: {e}")
         raise e
+

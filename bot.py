@@ -63,27 +63,35 @@ def format_for_telegram(text: str) -> str:
     return text
 
 
-async def send_paginated(message: Message, text: str):
-    """Format as HTML and split into ≤4096-char messages at paragraph boundaries."""
+async def send_paginated(message: Message, text: str) -> Message:
+    """Format as HTML, split into ≤4000-char chunks, return the last sent Message object."""
     MAX_LEN = 4000
     formatted = format_for_telegram(text)
 
     if len(formatted) <= MAX_LEN:
-        await message.answer(formatted, parse_mode=ParseMode.HTML)
-        return
+        return await message.answer(formatted, parse_mode=ParseMode.HTML)
 
     paragraphs = formatted.split('\n\n')
     current = ""
+    last_msg = None
     for para in paragraphs:
         addition = para + "\n\n"
         if len(current) + len(addition) > MAX_LEN:
             if current.strip():
-                await message.answer(current.strip(), parse_mode=ParseMode.HTML)
+                last_msg = await message.answer(current.strip(), parse_mode=ParseMode.HTML)
             current = addition
         else:
             current += addition
     if current.strip():
-        await message.answer(current.strip(), parse_mode=ParseMode.HTML)
+        last_msg = await message.answer(current.strip(), parse_mode=ParseMode.HTML)
+    return last_msg
+
+
+def continue_keyboard(namespace: str) -> InlineKeyboardMarkup:
+    """Inline keyboard with a single Continue button."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")]
+    ])
 
 
 THINKING_FRAMES = [
@@ -210,6 +218,65 @@ async def callback_book(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data.startswith("cont|"))
+async def callback_continue(callback: CallbackQuery):
+    """User pressed Continue — remove the button, show thinking placeholder, ask AI to carry on."""
+    namespace = callback.data.split("|", 1)[1]
+    user_id = callback.from_user.id
+
+    # Remove the Continue button from the triggering message
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer()
+
+    # Show animated thinking placeholder
+    placeholder = await callback.message.answer(THINKING_FRAMES[0])
+    stop_event = asyncio.Event()
+    typing_task = asyncio.create_task(keep_typing(callback.message.chat.id, bot))
+    thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
+
+    try:
+        history = session_manager.get_chat_history(user_id)
+        # Ask Gemini to continue exactly where it left off
+        answer, is_complete = gemini_service.query_rag(
+            namespace,
+            "Please continue your previous answer. Pick up exactly where you left off and finish your explanation.",
+            history
+        )
+
+        session_manager.add_to_chat_history(user_id, "user", "[continued]")
+        session_manager.add_to_chat_history(user_id, "model", answer)
+
+        stop_event.set()
+        thinking_task.cancel()
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+
+        last_msg = await send_paginated(callback.message, answer)
+        if not is_complete and last_msg:
+            try:
+                await last_msg.edit_reply_markup(reply_markup=continue_keyboard(namespace))
+            except Exception:
+                pass
+
+    except Exception as e:
+        stop_event.set()
+        thinking_task.cancel()
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+        logger.error(f"Continue error for user {user_id}: {e}")
+        await callback.message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
+    finally:
+        typing_task.cancel()
+
+
+
 @dp.message(F.text)
 async def handle_question(message: Message):
     user_id = message.from_user.id
@@ -228,7 +295,7 @@ async def handle_question(message: Message):
 
     try:
         history = session_manager.get_chat_history(user_id)
-        answer = gemini_service.query_rag(namespace, message.text, history)
+        answer, is_complete = gemini_service.query_rag(namespace, message.text, history)
 
         session_manager.add_to_chat_history(user_id, "user", message.text)
         session_manager.add_to_chat_history(user_id, "model", answer)
@@ -241,8 +308,15 @@ async def handle_question(message: Message):
         except Exception:
             pass
 
-        # 3. Send the real answer
-        await send_paginated(message, answer)
+        # 3. Send the real answer, keep Continue button if answer was cut off
+        last_msg = await send_paginated(message, answer)
+        if not is_complete and last_msg:
+            try:
+                await last_msg.edit_reply_markup(
+                    reply_markup=continue_keyboard(namespace)
+                )
+            except Exception:
+                pass
 
     except Exception as e:
         stop_event.set()
