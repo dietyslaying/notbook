@@ -165,6 +165,7 @@ def get_library_keyboard(page: int = 0) -> InlineKeyboardMarkup:
     if nav_row:
         keyboard.append(nav_row)
 
+    keyboard.append([InlineKeyboardButton(text="📝 Study Modes", callback_data="open_modes")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -201,6 +202,28 @@ async def handle_document(message: Message):
         parse_mode=ParseMode.HTML
     )
 
+
+@dp.callback_query(F.data == "open_modes")
+async def callback_open_modes(callback: CallbackQuery):
+    keyboard = [
+        [InlineKeyboardButton(text="💬 Normal Chat", callback_data="setmode|chat")],
+        [InlineKeyboardButton(text="❓ Quiz Mode", callback_data="setmode|quiz")],
+        [InlineKeyboardButton(text="🗂️ Flashcards Mode", callback_data="setmode|flashcards")],
+        [InlineKeyboardButton(text="📝 Notes Mode", callback_data="setmode|notes")],
+        [InlineKeyboardButton(text="⬅️ Back to Books", callback_data="page|0")]
+    ]
+    await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("setmode|"))
+async def callback_setmode(callback: CallbackQuery):
+    mode = callback.data.split("|")[1]
+    user_id = callback.from_user.id
+    session_manager.set_user_mode(user_id, mode)
+    
+    msg = f"✅ Study Mode set to <b>{mode.title()}</b>!\nAsk me a question to begin."
+    await callback.message.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Books", callback_data="page|0")]]))
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("page|"))
 async def callback_page(callback: CallbackQuery):
@@ -302,24 +325,55 @@ async def handle_question(message: Message):
 
     try:
         history = session_manager.get_chat_history(user_id)
-        answer, is_complete = await asyncio.to_thread(
-            gemini_service.query_rag, namespace, message.text, history
-        )
+        mode = session_manager.get_user_mode(user_id)
+        
+        stream_generator = gemini_service.query_rag_stream(namespace, message.text, history, mode)
+        
+        full_answer = ""
+        is_complete_final = True
+        last_edit_time = 0
+        current_msg = placeholder
+        
+        async for chunk_text, chunk_complete in stream_generator:
+            if not stop_event.is_set():
+                stop_event.set()
+                thinking_task.cancel()
+                
+            full_answer += chunk_text
+            if chunk_complete is not None:
+                is_complete_final = chunk_complete
+                
+            current_time = asyncio.get_event_loop().time()
+            if current_time - last_edit_time > 1.5:
+                formatted = format_for_telegram(full_answer)
+                if len(formatted) < 4000:
+                    try:
+                        await current_msg.edit_text(formatted + " ✍️", parse_mode=ParseMode.HTML)
+                        last_edit_time = current_time
+                    except Exception:
+                        pass
+                        
+        # Stream finished
+        # 1. Truncate cleanly if cut off
+        if not is_complete_final:
+            match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
+            if match:
+                full_answer = match.group(1).strip() + "..."
+            else:
+                full_answer = full_answer.rsplit(' ', 1)[0] + "..."
 
         session_manager.add_to_chat_history(user_id, "user", message.text)
-        session_manager.add_to_chat_history(user_id, "model", answer)
+        session_manager.add_to_chat_history(user_id, "model", full_answer)
 
-        # 2. Stop the animation and silently delete the placeholder
-        stop_event.set()
-        thinking_task.cancel()
+        # 2. Delete the streaming placeholder if possible
         try:
-            await placeholder.delete()
+            await current_msg.delete()
         except Exception:
             pass
 
-        # 3. Send the real answer, keep Continue button if answer was cut off
-        last_msg = await send_paginated(message, answer)
-        if not is_complete and last_msg:
+        # 3. Send final formatted text
+        last_msg = await send_paginated(message, full_answer)
+        if not is_complete_final and last_msg:
             try:
                 await last_msg.edit_reply_markup(
                     reply_markup=continue_keyboard(namespace)

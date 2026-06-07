@@ -16,6 +16,28 @@ system_instruction: |
   7. End your answer with a concise 1–2 line "Key Takeaway" in bold when appropriate.
   8. Never say "I cannot find this" unless the topic is completely unrelated to the excerpts provided.
 
+modes:
+  chat: ""
+  quiz: |
+    ### QUIZ MODE ACTIVE ###
+    You are now in QUIZ MODE. 
+    1. Ask the user ONE challenging multiple-choice or short-answer question based on the textbook excerpts provided or their previous chat history.
+    2. Wait for them to answer. Do not provide the answer immediately.
+    3. If they are answering a previous question, grade their answer, explain the correct reasoning citing page numbers, and then ask the NEXT question.
+  flashcards: |
+    ### FLASHCARD MODE ACTIVE ###
+    You are now in FLASHCARD MODE.
+    1. Provide a single core concept, term, or disease presentation from the textbook context as the "Front" of the flashcard.
+    2. Ask the user to define or explain it.
+    3. When the user responds or says "flip", provide the detailed "Back" of the flashcard (the full definition, mechanism, and clinical relevance) citing page numbers.
+  notes: |
+    ### NOTES MODE ACTIVE ###
+    You are now in NOTES MODE.
+    1. Ignore conversational pleasantries.
+    2. Produce highly condensed, structured, bulleted study notes based on the user's query and the textbook excerpts.
+    3. Use deep nesting, bolding for keywords, and clear sections (Pathophysiology, Presentation, Diagnosis, Management).
+    4. Keep it incredibly concise, designed for rapid revision before an exam.
+
 messages:
   greeting: |
     👋 Welcome to <b>Study Helper</b> — your personal medical textbook assistant.

@@ -55,17 +55,32 @@ def _save_to_pinecone(user_id: int, metadata: dict):
         logger.error(f"Pinecone upsert error for user {user_id}: {e}")
 
 def save_user_session(user_id: int, book_name: str) -> None:
-    # 1. Read existing metadata so we don't overwrite chat history
     metadata = _session_cache.get(user_id)
     if not metadata:
         metadata = _fetch_from_pinecone(user_id)
     
-    # 2. Update book_name
     metadata["book_name"] = book_name
+    # Default to chat mode when a new book is selected, unless a mode already exists
+    if "mode" not in metadata:
+        metadata["mode"] = "chat"
     _session_cache[user_id] = metadata
-    
-    # 3. Save
     _save_to_pinecone(user_id, metadata)
+
+def set_user_mode(user_id: int, mode: str) -> None:
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+    
+    metadata["mode"] = mode
+    _session_cache[user_id] = metadata
+    _save_to_pinecone(user_id, metadata)
+
+def get_user_mode(user_id: int) -> str:
+    metadata = _session_cache.get(user_id)
+    if not metadata:
+        metadata = _fetch_from_pinecone(user_id)
+        _session_cache[user_id] = metadata
+    return metadata.get("mode", "chat")
 
 def get_user_session(user_id: int) -> str | None:
     metadata = _session_cache.get(user_id)
