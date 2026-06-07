@@ -1,9 +1,9 @@
 llm:
-  model_name: "gemini-3.5-flash"
-  temperature: 0.0          
-  top_p: 0.8
+  model_name: "gemini-2.0-flash"
+  temperature: 0.2
+  top_p: 0.92
   top_k: 40
-  max_output_tokens: 2048
+  max_output_tokens: 8192
 
 cache:
   ttl: "3600s"              # 1 hour

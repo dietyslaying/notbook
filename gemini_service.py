@@ -57,25 +57,33 @@ def query_rag(namespace: str, user_question: str, chat_history: list = None) -> 
         )
         query_embedding = embed_response[0].values
 
-        # 2. Search Pinecone — top_k=8 gives the model more material to work with
+        # 2. Search Pinecone — top_k=12 gives the model broad coverage of the topic
         search_results = index.query(
             namespace=namespace,
             vector=query_embedding,
-            top_k=8,
+            top_k=12,
             include_metadata=True
         )
 
         if not search_results.matches:
             return (prompts['messages']['error_not_found'], True)
 
-        # 3. Assemble context, filtering out very low-scoring matches (< 0.65)
-        good_matches = [m for m in search_results.matches if m.score >= 0.65]
+        # 3. Quality filter: discard low-confidence matches
+        #    Use 0.70 if we have enough results, fall back to 0.60 otherwise
+        good_matches = [m for m in search_results.matches if m.score >= 0.70]
+        if len(good_matches) < 3:
+            good_matches = [m for m in search_results.matches if m.score >= 0.60]
         if not good_matches:
-            good_matches = search_results.matches  # fall back to all if all are low
+            good_matches = search_results.matches[:5]  # last resort: top 5
 
-        context_text = "\n\n---\n\n".join(
-            [f"[Excerpt {i+1}]\n{m.metadata['text']}" for i, m in enumerate(good_matches)]
-        )
+        # 4. Build rich context with page references
+        context_parts = []
+        for i, m in enumerate(good_matches):
+            page = m.metadata.get('page', '?')
+            text = m.metadata.get('text', '')
+            context_parts.append(f"[Excerpt {i+1} | Page {page} | Relevance: {m.score:.2f}]\n{text}")
+
+        context_text = "\n\n---\n\n".join(context_parts)
 
         # 4. Build the Gemini prompt
         system_msg = prompts['system_instruction']

@@ -1,24 +1,30 @@
 system_instruction: |
-  You are a smart, friendly Study Helper bot. A user is asking questions about a medical textbook.
+  You are a world-class medical study assistant with the depth of a senior clinician and the clarity of a great teacher. A student is studying from a specific medical textbook and has asked you a question.
 
-  You have been given the most relevant excerpts from the book to help answer the question.
+  You have been given the most relevant excerpts from that textbook, each tagged with their source page number.
 
-  RULES:
-  1. Answer using the provided excerpts as your primary source. Be specific and informative.
-  2. If the excerpts don't directly answer the question, use them as context and say what you can determine from the document. Do not simply refuse.
-  3. Only reply "I cannot find this in the document" if the topic is completely unrelated to medicine or the provided excerpts have zero relevance.
-  4. Format your answer clearly using bold for key terms and bullet points for lists.
-  5. Keep your answers concise but complete. Do not cut off mid-sentence.
+  YOUR ROLE:
+  You do not merely quote — you synthesise. You connect concepts, clarify mechanisms, highlight clinical significance, and explain *why* something matters, not just *what* it is.
+
+  STRICT RULES:
+  1. Base your answer primarily on the provided excerpts. Do not fabricate facts.
+  2. When you state a fact, naturally reference the page (e.g. "According to page 234…" or "As noted on p.312…").
+  3. If the excerpts only partially address the question, answer what you can from them and clearly note what is outside the provided context.
+  4. Structure complex answers with bold headings, bullet points, and logical flow.
+  5. For clinical topics: always include mechanism, presentation, investigation, and management where relevant — even if spread across excerpts.
+  6. If there are multiple viewpoints or treatment options in the text, present all of them.
+  7. End your answer with a concise 1–2 line "Key Takeaway" in bold when appropriate.
+  8. Never say "I cannot find this" unless the topic is completely unrelated to the excerpts provided.
 
 messages:
   greeting: |
-    👋 Welcome to the <b>Study Helper Bot</b>!
+    👋 Welcome to <b>Study Helper</b> — your personal medical textbook assistant.
 
-    📚 Select a book below to start a study session, then ask me anything about it.
+    📚 Select a book below to begin your session, then ask anything about it.
   processing: "Memorizing your document... This might take a minute."
   success: "Document memorized successfully! Ask me anything."
   cache_expired: "📖 You haven't selected a book yet.\n\nUse /books to choose one from the library!"
-  error_not_found: "🔍 I couldn't find a specific answer for that in the document. Try rephrasing your question or asking about a specific topic, condition, or treatment."
+  error_not_found: "🔍 I couldn't find relevant content for that in the textbook. Try rephrasing, or ask about a specific condition, drug, or topic."
   error_file_too_large: "This file is too large! The standard Telegram limit is 20MB."
   error_unsupported_file: "Unsupported file type. Please send a PDF or TXT file."
   error_processing: "An error occurred while memorizing your document. Please try again."
@@ -28,9 +34,12 @@ messages:
   admin_preload_success: "Successfully preloaded {book_name} into the library! Cache ID: {cache_id}"
   admin_preload_error: "Failed to preload book. Error: {error}"
   book_selected: |
-    ✅ <b>{book_name}</b> selected!
+    ✅ <b>{book_name}</b> is now loaded.
 
-    Ask me anything about this book. For example:
-    • What are the key topics covered?
-    • Explain hypertension treatment
-    • What are the symptoms of diabetes?
+    Ask me anything — a condition, a drug, a mechanism, a clinical scenario.
+    I'll give you a thorough, textbook-backed answer with page references.
+
+    <i>Example questions:</i>
+    • <i>What is the pathophysiology of Type 2 diabetes?</i>
+    • <i>Explain the management of a hypertensive emergency</i>
+    • <i>What are the red flag symptoms for lower back pain?</i>
