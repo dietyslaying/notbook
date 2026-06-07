@@ -86,6 +86,33 @@ async def send_paginated(message: Message, text: str):
         await message.answer(current.strip(), parse_mode=ParseMode.HTML)
 
 
+THINKING_FRAMES = [
+    "📖  Checking the archives…",
+    "🔍  Cross-referencing the chapters…",
+    "📚  Leafing through the pages…",
+    "🗂️  Consulting the index…",
+    "📝  Pulling the relevant sections…",
+    "🔬  Examining the medical literature…",
+    "📖  Almost there, just one more page…",
+    "🗃️  Retrieving from the stacks…",
+]
+
+async def animated_thinking(placeholder_msg, stop_event: asyncio.Event):
+    """Cycles the placeholder through librarian phrases every 3s until stop_event fires."""
+    idx = 0
+    try:
+        while not stop_event.is_set():
+            await asyncio.sleep(3.2)
+            if stop_event.is_set():
+                break
+            idx = (idx + 1) % len(THINKING_FRAMES)
+            try:
+                await placeholder_msg.edit_text(THINKING_FRAMES[idx])
+            except Exception:
+                pass  # placeholder may already be deleted
+    except asyncio.CancelledError:
+        pass
+
 async def keep_typing(chat_id: int, bot: Bot):
     try:
         while True:
@@ -192,7 +219,12 @@ async def handle_question(message: Message):
         await message.answer(prompts['messages']['cache_expired'], parse_mode=ParseMode.HTML)
         return
 
+    # 1. Fire off a placeholder immediately so the user sees action right away
+    placeholder = await message.answer(THINKING_FRAMES[0])
+
+    stop_event = asyncio.Event()
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
+    thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
 
     try:
         history = session_manager.get_chat_history(user_id)
@@ -201,9 +233,25 @@ async def handle_question(message: Message):
         session_manager.add_to_chat_history(user_id, "user", message.text)
         session_manager.add_to_chat_history(user_id, "model", answer)
 
+        # 2. Stop the animation and silently delete the placeholder
+        stop_event.set()
+        thinking_task.cancel()
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+
+        # 3. Send the real answer
         await send_paginated(message, answer)
 
     except Exception as e:
+        stop_event.set()
+        thinking_task.cancel()
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
+
         error_msg = str(e)
         logger.error(f"Inference error for user {user_id}: {error_msg}")
         if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
@@ -217,6 +265,7 @@ async def handle_question(message: Message):
             await message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
+
 
 
 # ---------------------------------------------------------------------------
