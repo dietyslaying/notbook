@@ -34,8 +34,9 @@ def _fetch_from_pinecone(user_id: int) -> dict:
 
 def _save_to_pinecone(user_id: int, metadata: dict):
     try:
-        # We must provide a dummy vector of the correct dimension (1024)
+        # Pinecone requires at least one non-zero value in a dense vector
         dummy_vector = [0.0] * 1024
+        dummy_vector[0] = 1.0
         
         # Pinecone metadata values must be strings, numbers, booleans, or lists of strings
         # So we must serialize complex objects like chat history to a JSON string
