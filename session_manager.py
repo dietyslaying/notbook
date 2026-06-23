@@ -127,6 +127,32 @@ def add_to_chat_history(user_id: int, role: str, text: str) -> None:
     
     _save_to_pinecone(user_id, metadata)
 
+# In-memory caches for follow-up questions and flashcard backs
+# (no need to persist — only relevant for current session)
+_followup_cache = {}   # user_id -> [q1, q2, q3]
+_flashcard_cache = {}  # user_id -> back_text
+
+def set_followups(user_id: int, questions: list) -> None:
+    """Store follow-up questions for a user (overwritten each response)."""
+    _followup_cache[user_id] = questions
+
+def get_followup(user_id: int, index: int):
+    """Retrieve a specific follow-up question by index. Returns None if not found."""
+    qs = _followup_cache.get(user_id, [])
+    return qs[index] if index < len(qs) else None
+
+def get_all_followups(user_id: int) -> list:
+    """Return all stored follow-up questions for a user."""
+    return _followup_cache.get(user_id, [])
+
+def set_flashcard_back(user_id: int, back_text: str) -> None:
+    """Store the back of a flashcard for the flip action."""
+    _flashcard_cache[user_id] = back_text
+
+def get_flashcard_back(user_id: int):
+    """Pop and return the flashcard back text (one-time use)."""
+    return _flashcard_cache.pop(user_id, None)
+
 # These old SQLite functions are no longer needed, 
 # as the library is dynamically generated from Pinecone namespaces
 def add_to_library(file_hash: str, book_name: str, cache_name: str):
@@ -139,6 +165,8 @@ def update_book_cache(file_hash: str, new_cache_name: str):
     pass
 def clear_user_session(user_id: int):
     _session_cache.pop(user_id, None)
+    _followup_cache.pop(user_id, None)
+    _flashcard_cache.pop(user_id, None)
     try:
         index.delete(ids=[_get_vector_id(user_id)], namespace=NAMESPACE)
     except Exception:

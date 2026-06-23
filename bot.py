@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import re
 import yaml
@@ -5,8 +7,14 @@ import logging
 import asyncio
 import math
 import html
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+)
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ParseMode
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -18,14 +26,26 @@ import gemini_service
 import session_manager
 from middlewares import RateLimitMiddleware
 
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
 
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 with open("prompts.yaml", "r", encoding="utf-8") as f:
     prompts = yaml.safe_load(f)
+
+# ---------------------------------------------------------------------------
+# Bot + Dispatcher
+# ---------------------------------------------------------------------------
 
 local_api_url = config.get('bot', {}).get('telegram_local_api_url')
 if local_api_url:
@@ -40,76 +60,185 @@ dp = Dispatcher()
 dp.message.middleware(RateLimitMiddleware())
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Thinking animation frames (study-themed)
 # ---------------------------------------------------------------------------
-
-def format_for_telegram(text: str) -> str:
-    """Converts Gemini Markdown to Telegram-safe HTML.
-    
-    Order matters: escape HTML first, then convert markdown tokens.
-    """
-    # 1. Escape any raw HTML chars so they render as text, not tags
-    text = html.escape(text)
-    # 2. **bold** → <b>bold</b>  (non-greedy, single-line first)
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    # 3. Markdown headers (#, ##, ###) → <b>...</b>
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-    # 4. Fenced code blocks
-    text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
-    # 5. Inline code
-    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    # 6. Stray lone asterisks used as bullets → bullet character
-    text = re.sub(r'^\* ', '• ', text, flags=re.MULTILINE)
-    return text
-
-
-async def send_paginated(message: Message, text: str) -> Message:
-    """Format as HTML, split into ≤4000-char chunks, return the last sent Message object."""
-    MAX_LEN = 4000
-    formatted = format_for_telegram(text)
-
-    if len(formatted) <= MAX_LEN:
-        return await message.answer(formatted, parse_mode=ParseMode.HTML)
-
-    paragraphs = formatted.split('\n\n')
-    current = ""
-    last_msg = None
-    for para in paragraphs:
-        addition = para + "\n\n"
-        if len(current) + len(addition) > MAX_LEN:
-            if current.strip():
-                last_msg = await message.answer(current.strip(), parse_mode=ParseMode.HTML)
-            current = addition
-        else:
-            current += addition
-    if current.strip():
-        last_msg = await message.answer(current.strip(), parse_mode=ParseMode.HTML)
-    return last_msg
-
-
-def continue_keyboard(namespace: str) -> InlineKeyboardMarkup:
-    """Inline keyboard with a single Continue button."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")]
-    ])
-
 
 THINKING_FRAMES = [
     "📖  Checking the archives…",
-    "🔍  Cross-referencing the chapters…",
+    "🔍  Cross-referencing chapters…",
     "📚  Leafing through the pages…",
     "🗂️  Consulting the index…",
-    "📝  Pulling the relevant sections…",
-    "🔬  Examining the medical literature…",
-    "📖  Almost there, just one more page…",
+    "📝  Pulling relevant sections…",
+    "🔬  Examining the material…",
+    "📖  Almost there…",
     "🗃️  Retrieving from the stacks…",
-    "🧠  Synthesising the findings…",
+    "🧠  Synthesising findings…",
     "✍️  Composing your answer…",
-    "📖  Still with you, this one's thorough…",
 ]
 
-async def animated_thinking(placeholder_msg, stop_event: asyncio.Event):
-    """Cycles the placeholder through librarian phrases every 3s until stop_event fires."""
+# ---------------------------------------------------------------------------
+# Helpers — formatting
+# ---------------------------------------------------------------------------
+
+
+def format_for_telegram(text: str) -> str:
+    """Convert Gemini Markdown to Telegram-safe HTML.
+
+    Order matters: escape HTML first, then layer Markdown conversions.
+    """
+    text = html.escape(text)
+    # **bold** → <b>bold</b>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    # ## Headers → <b>Headers</b>
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    # Fenced code blocks
+    text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
+    # Inline code
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    # Bullet markers
+    text = re.sub(r'^\* ', '• ', text, flags=re.MULTILINE)
+    text = re.sub(r'^- ', '• ', text, flags=re.MULTILINE)
+    # Clean stray lone asterisks (single * not part of ** pairs)
+    text = re.sub(r'(?<!\*)\*(?!\*)', '', text)
+    # Remove triple+ newlines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Helpers — friendly errors
+# ---------------------------------------------------------------------------
+
+
+def get_friendly_error(error_msg: str) -> str:
+    """Return a user-friendly error string — NEVER expose raw errors."""
+    e = error_msg.lower()
+    if "429" in e or "resource_exhausted" in e or "rate_limit" in e:
+        return "⏳ High demand right now. Please wait a moment and try again."
+    if "503" in e or "unavailable" in e:
+        return "⏳ I'm briefly unavailable. Please try again in a few seconds."
+    if "timeout" in e:
+        return "⏳ That took too long. Please try a shorter question."
+    return "⚠️ Something went wrong. Please try again."
+
+
+# ---------------------------------------------------------------------------
+# Helpers — follow-up questions
+# ---------------------------------------------------------------------------
+
+
+def parse_followups(text: str) -> tuple[str, list[str]]:
+    """Split AI response into (body, [followup_q1, followup_q2, followup_q3]).
+
+    The AI is expected to append a block like:
+        📌 Related questions:
+        1. Question one?
+        2. Question two?
+        3. Question three?
+    """
+    # Try to find the follow-up block
+    pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
+    match = re.search(pattern, text)
+    if not match:
+        return text.strip(), []
+
+    body = text[:match.start()].strip()
+    block = match.group(1)
+    questions: list[str] = []
+    for line in block.strip().splitlines():
+        q = re.sub(r'^\s*\d+\.\s*', '', line).strip()
+        if q:
+            questions.append(q)
+    return body, questions[:3]
+
+
+def build_followup_keyboard(
+    followups: list[str],
+    namespace: str,
+    include_continue: bool = False,
+) -> InlineKeyboardMarkup | None:
+    """Build an inline keyboard with up to 3 follow-up buttons + optional continue."""
+    if not followups and not include_continue:
+        return None
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for idx, q in enumerate(followups[:3]):
+        label = q if len(q) <= 60 else q[:57] + "…"
+        rows.append([InlineKeyboardButton(text=f"{idx + 1}. {label}", callback_data=f"fq|{idx}")])
+    if include_continue:
+        rows.append([InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
+# ---------------------------------------------------------------------------
+# Helpers — quiz parsing
+# ---------------------------------------------------------------------------
+
+_QUIZ_RE = re.compile(
+    r'<QUIZ>\s*'
+    r'QUESTION:\s*(?P<question>.+?)\s*'
+    r'A:\s*(?P<a>.+?)\s*'
+    r'B:\s*(?P<b>.+?)\s*'
+    r'C:\s*(?P<c>.+?)\s*'
+    r'D:\s*(?P<d>.+?)\s*'
+    r'CORRECT:\s*(?P<correct>[A-Da-d])\s*'
+    r'EXPLANATION:\s*(?P<explanation>.+?)\s*'
+    r'</QUIZ>',
+    re.DOTALL,
+)
+
+_CORRECT_MAP = {'a': 0, 'b': 1, 'c': 2, 'd': 3}
+
+
+def parse_quiz(text: str) -> dict | None:
+    """Extract structured quiz data from AI output. Returns None on failure."""
+    m = _QUIZ_RE.search(text)
+    if not m:
+        return None
+    return {
+        'question': m.group('question').strip(),
+        'options': [
+            m.group('a').strip(),
+            m.group('b').strip(),
+            m.group('c').strip(),
+            m.group('d').strip(),
+        ],
+        'correct': _CORRECT_MAP.get(m.group('correct').strip().lower(), 0),
+        'explanation': m.group('explanation').strip(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Helpers — flashcard parsing
+# ---------------------------------------------------------------------------
+
+_FLASHCARD_RE = re.compile(
+    r'<FLASHCARD>\s*'
+    r'FRONT:\s*(?P<front>.+?)\s*'
+    r'BACK:\s*(?P<back>.+?)\s*'
+    r'</FLASHCARD>',
+    re.DOTALL,
+)
+
+
+def parse_flashcard(text: str) -> dict | None:
+    """Extract structured flashcard data from AI output. Returns None on failure."""
+    m = _FLASHCARD_RE.search(text)
+    if not m:
+        return None
+    return {
+        'front': m.group('front').strip(),
+        'back': m.group('back').strip(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Helpers — animated thinking / typing
+# ---------------------------------------------------------------------------
+
+
+async def animated_thinking(placeholder_msg: Message, stop_event: asyncio.Event) -> None:
+    """Cycle the placeholder through study phrases every 3 s until stopped."""
     idx = 0
     try:
         while not stop_event.is_set():
@@ -120,29 +249,33 @@ async def animated_thinking(placeholder_msg, stop_event: asyncio.Event):
             try:
                 await placeholder_msg.edit_text(THINKING_FRAMES[idx])
             except Exception:
-                pass  # placeholder may already be deleted
+                pass
     except asyncio.CancelledError:
         pass
 
-async def keep_typing(chat_id: int, bot: Bot):
+
+async def keep_typing(chat_id: int, bot_instance: Bot) -> None:
+    """Send 'typing' chat action continuously until cancelled."""
     try:
         while True:
-            await bot.send_chat_action(chat_id=chat_id, action="typing")
+            await bot_instance.send_chat_action(chat_id=chat_id, action="typing")
             await asyncio.sleep(4)
     except asyncio.CancelledError:
         pass
 
 
 # ---------------------------------------------------------------------------
-# Library keyboard  (defined before cmd_start so it can be called from it)
+# Helpers — keyboards
 # ---------------------------------------------------------------------------
+
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton(text="📚 Books", callback_data="open_books")],
-        [InlineKeyboardButton(text="📝 Topics", callback_data="open_modes")]
+        [InlineKeyboardButton(text="📝 Topics", callback_data="open_modes")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 def get_library_keyboard(user_id: int, page: int = 0) -> InlineKeyboardMarkup:
     books = gemini_service.get_available_books(user_id)
@@ -150,10 +283,10 @@ def get_library_keyboard(user_id: int, page: int = 0) -> InlineKeyboardMarkup:
     total_pages = math.ceil(len(books) / items_per_page) if books else 1
 
     start_idx = page * items_per_page
-    page_books = books[start_idx:start_idx + items_per_page]
+    page_books = books[start_idx : start_idx + items_per_page]
 
-    keyboard = []
-    row = []
+    keyboard: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
     for raw_ns, display_name in page_books:
         display = display_name[:28]
         btn = InlineKeyboardButton(text=f"📖 {display}", callback_data=f"book|{raw_ns}")
@@ -164,11 +297,11 @@ def get_library_keyboard(user_id: int, page: int = 0) -> InlineKeyboardMarkup:
     if row:
         keyboard.append(row)
 
-    nav_row = []
+    nav_row: list[InlineKeyboardButton] = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=f"page|{page-1}"))
+        nav_row.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=f"page|{page - 1}"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"page|{page+1}"))
+        nav_row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"page|{page + 1}"))
     if nav_row:
         keyboard.append(nav_row)
 
@@ -176,76 +309,230 @@ def get_library_keyboard(user_id: int, page: int = 0) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
+def continue_keyboard(namespace: str) -> InlineKeyboardMarkup:
+    """Inline keyboard with a single Continue button."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")]
+    ])
+
+
 # ---------------------------------------------------------------------------
-# Handlers
+# Unified response sender
 # ---------------------------------------------------------------------------
 
+
+async def send_formatted_response(
+    message: Message,
+    text: str,
+    user_id: int,
+    namespace: str,
+    is_complete: bool = True,
+) -> None:
+    """Parse follow-ups, format HTML, split into ≤4000-char chunks, attach keyboard to last chunk."""
+
+    body, followups = parse_followups(text)
+    session_manager.set_followups(user_id, followups)
+
+    formatted = format_for_telegram(body)
+    keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
+
+    MAX_LEN = 4000
+
+    if len(formatted) <= MAX_LEN:
+        await message.answer(formatted, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        return
+
+    # Split by paragraphs, attach keyboard to last chunk
+    paragraphs = formatted.split('\n\n')
+    current = ""
+    for para in paragraphs:
+        addition = para + "\n\n"
+        if len(current) + len(addition) > MAX_LEN:
+            if current.strip():
+                await message.answer(current.strip(), parse_mode=ParseMode.HTML)
+            current = addition
+        else:
+            current += addition
+    if current.strip():
+        await message.answer(current.strip(), parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+# ---------------------------------------------------------------------------
+# Quiz response handler
+# ---------------------------------------------------------------------------
+
+
+async def handle_quiz_response(
+    message: Message,
+    full_answer: str,
+    user_id: int,
+    namespace: str,
+    is_complete: bool,
+) -> None:
+    """Send a native Telegram quiz poll if parseable, else fall back to text."""
+    quiz_data = parse_quiz(full_answer)
+    if not quiz_data:
+        # Fallback to regular formatted text
+        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+        return
+
+    explanation = quiz_data['explanation']
+    try:
+        await message.answer_poll(
+            question=quiz_data['question'][:300],
+            options=[opt[:100] for opt in quiz_data['options']],
+            type="quiz",
+            correct_option_id=quiz_data['correct'],
+            explanation=explanation[:200],
+            is_anonymous=False,
+        )
+    except Exception as e:
+        logger.warning(f"Quiz poll failed, falling back to text: {e}")
+        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+
+
+# ---------------------------------------------------------------------------
+# Flashcard response handler
+# ---------------------------------------------------------------------------
+
+
+async def handle_flashcard_response(
+    message: Message,
+    full_answer: str,
+    user_id: int,
+    namespace: str,
+    is_complete: bool,
+) -> None:
+    """Send the front of a flashcard with a Flip button; store the back."""
+    card = parse_flashcard(full_answer)
+    if not card:
+        # Fallback to regular formatted text
+        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+        return
+
+    session_manager.set_flashcard_back(user_id, card['back'])
+
+    front_html = format_for_telegram(card['front'])
+    flip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Flip to see answer", callback_data="flip")]
+    ])
+    await message.answer(
+        f"<b>🗂️ Flashcard</b>\n\n{front_html}",
+        parse_mode=ParseMode.HTML,
+        reply_markup=flip_kb,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Collect full streamed response (no editing — kills ghost messages)
+# ---------------------------------------------------------------------------
+
+
+async def collect_full_stream(
+    namespace: str,
+    question: str,
+    history: list,
+    mode: str,
+) -> tuple[str, bool]:
+    """Consume query_rag_stream silently and return (full_answer, is_complete)."""
+    full_answer = ""
+    is_complete_final = True
+
+    stream = gemini_service.query_rag_stream(namespace, question, history, mode)
+    async for chunk_text, chunk_complete in stream:
+        full_answer += chunk_text
+        if chunk_complete is not None:
+            is_complete_final = chunk_complete
+
+    return full_answer, is_complete_final
+
+
+# ---------------------------------------------------------------------------
+# Handlers — commands
+# ---------------------------------------------------------------------------
+
+
 @dp.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message) -> None:
     greeting = prompts['messages']['greeting']
     await message.answer(greeting, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard())
 
 
 @dp.message(Command("books", "library"))
-async def cmd_books(message: Message):
+async def cmd_books(message: Message) -> None:
     books = gemini_service.get_available_books(message.from_user.id)
     if not books:
         await message.answer("📭 The library is empty. Ask the admin to add books!")
         return
-    await message.answer("📚 <b>Library</b>\nSelect a book to start your study session:",
-                         parse_mode=ParseMode.HTML,
-                         reply_markup=get_library_keyboard(message.from_user.id, 0))
-
-
-@dp.message(F.document)
-async def handle_document(message: Message):
     await message.answer(
-        "📁 Direct file uploads are disabled.\nUse /books to select a book from the library.",
-        parse_mode=ParseMode.HTML
+        "📚 <b>Library</b>\nSelect a book to start your study session:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_library_keyboard(message.from_user.id, 0),
     )
 
+
+# ---------------------------------------------------------------------------
+# Handlers — inline callbacks (menus)
+# ---------------------------------------------------------------------------
+
+
 @dp.callback_query(F.data == "open_main")
-async def callback_open_main(callback: CallbackQuery):
+async def callback_open_main(callback: CallbackQuery) -> None:
     await callback.message.edit_reply_markup(reply_markup=get_main_keyboard())
     await callback.answer()
 
+
 @dp.callback_query(F.data == "open_books")
-async def callback_open_books(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(callback.from_user.id, 0))
+async def callback_open_books(callback: CallbackQuery) -> None:
+    await callback.message.edit_reply_markup(
+        reply_markup=get_library_keyboard(callback.from_user.id, 0),
+    )
     await callback.answer()
 
 
 @dp.callback_query(F.data == "open_modes")
-async def callback_open_modes(callback: CallbackQuery):
+async def callback_open_modes(callback: CallbackQuery) -> None:
     keyboard = [
         [InlineKeyboardButton(text="💬 Normal Chat", callback_data="setmode|chat")],
         [InlineKeyboardButton(text="❓ Quiz Mode", callback_data="setmode|quiz")],
-        [InlineKeyboardButton(text="🗂️ Flashcards Mode", callback_data="setmode|flashcards")],
-        [InlineKeyboardButton(text="📝 Notes Mode", callback_data="setmode|notes")],
-        [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]
+        [InlineKeyboardButton(text="🗂️ Flashcards", callback_data="setmode|flashcards")],
+        [InlineKeyboardButton(text="📝 Notes", callback_data="setmode|notes")],
+        [InlineKeyboardButton(text="💡 Q&A Practice", callback_data="setmode|qna")],
+        [InlineKeyboardButton(text="🔄 Spaced Review", callback_data="setmode|spaced_review")],
+        [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")],
     ]
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
     await callback.answer()
 
+
 @dp.callback_query(F.data.startswith("setmode|"))
-async def callback_setmode(callback: CallbackQuery):
+async def callback_setmode(callback: CallbackQuery) -> None:
     mode = callback.data.split("|")[1]
     user_id = callback.from_user.id
     session_manager.set_user_mode(user_id, mode)
-    
-    msg = f"✅ Study Mode set to <b>{mode.title()}</b>!\nAsk me a question to begin."
-    await callback.message.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]]))
+
+    msg = f"✅ Study Mode set to <b>{mode.replace('_', ' ').title()}</b>!\nAsk me a question to begin."
+    await callback.message.edit_text(
+        msg,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]]
+        ),
+    )
     await callback.answer()
 
+
 @dp.callback_query(F.data.startswith("page|"))
-async def callback_page(callback: CallbackQuery):
+async def callback_page(callback: CallbackQuery) -> None:
     page = int(callback.data.split("|")[1])
-    await callback.message.edit_reply_markup(reply_markup=get_library_keyboard(callback.from_user.id, page))
+    await callback.message.edit_reply_markup(
+        reply_markup=get_library_keyboard(callback.from_user.id, page),
+    )
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("book|"))
-async def callback_book(callback: CallbackQuery):
+async def callback_book(callback: CallbackQuery) -> None:
     namespace = callback.data.split("|", 1)[1]
     user_id = callback.from_user.id
 
@@ -258,7 +545,7 @@ async def callback_book(callback: CallbackQuery):
 
     session_manager.save_user_session(user_id, namespace)
 
-    # Show just the clean book name (strip user_id prefix or global| prefix)
+    # Show just the clean book name
     if f"{user_id}|" in namespace:
         display_name = namespace.split("|", 1)[1]
     elif namespace.startswith("global|"):
@@ -271,9 +558,75 @@ async def callback_book(callback: CallbackQuery):
     await callback.answer()
 
 
+# ---------------------------------------------------------------------------
+# Handlers — follow-up question callback
+# ---------------------------------------------------------------------------
+
+
+@dp.callback_query(F.data.startswith("fq|"))
+async def callback_followup(callback: CallbackQuery) -> None:
+    """User tapped one of the three follow-up question buttons."""
+    idx = int(callback.data.split("|")[1])
+    user_id = callback.from_user.id
+    question = session_manager.get_followup(user_id, idx)
+
+    if not question:
+        await callback.answer("Follow-up expired. Please ask a new question.", show_alert=True)
+        return
+
+    # Remove buttons from the triggering message
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer()
+
+    namespace = session_manager.get_user_session(user_id)
+    if not namespace:
+        await callback.message.answer(prompts['messages']['cache_expired'], parse_mode=ParseMode.HTML)
+        return
+
+    # Process exactly like a typed question
+    await _process_question(callback.message, user_id, namespace, question)
+
+
+# ---------------------------------------------------------------------------
+# Handlers — flashcard flip callback
+# ---------------------------------------------------------------------------
+
+
+@dp.callback_query(F.data == "flip")
+async def callback_flip(callback: CallbackQuery) -> None:
+    """Reveal the back of the current flashcard."""
+    user_id = callback.from_user.id
+    back_text = session_manager.get_flashcard_back(user_id)
+
+    if not back_text:
+        await callback.answer("No flashcard to flip!", show_alert=True)
+        return
+
+    # Remove the flip button
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer()
+
+    back_html = format_for_telegram(back_text)
+    await callback.message.answer(
+        f"<b>🔄 Answer</b>\n\n{back_html}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handlers — continue callback
+# ---------------------------------------------------------------------------
+
+
 @dp.callback_query(F.data.startswith("cont|"))
-async def callback_continue(callback: CallbackQuery):
-    """User pressed Continue — remove the button, show thinking placeholder, ask AI to carry on."""
+async def callback_continue(callback: CallbackQuery) -> None:
+    """User pressed Continue — collect full continuation silently, then send."""
     namespace = callback.data.split("|", 1)[1]
     user_id = callback.from_user.id
 
@@ -284,7 +637,7 @@ async def callback_continue(callback: CallbackQuery):
         pass
     await callback.answer()
 
-    # Show animated thinking placeholder
+    # Animated thinking placeholder
     placeholder = await callback.message.answer(THINKING_FRAMES[0])
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(keep_typing(callback.message.chat.id, bot))
@@ -292,17 +645,19 @@ async def callback_continue(callback: CallbackQuery):
 
     try:
         history = session_manager.get_chat_history(user_id)
-        # Ask Gemini to continue exactly where it left off
-        answer, is_complete = await asyncio.to_thread(
-            gemini_service.query_rag,
-            namespace,
-            "Please continue your previous answer. Pick up exactly where you left off and finish your explanation.",
-            history
+        continuation_prompt = (
+            "Please continue your previous answer. "
+            "Pick up exactly where you left off and finish your explanation."
+        )
+
+        full_answer, is_complete = await collect_full_stream(
+            namespace, continuation_prompt, history, session_manager.get_user_mode(user_id),
         )
 
         session_manager.add_to_chat_history(user_id, "user", "[continued]")
-        session_manager.add_to_chat_history(user_id, "model", answer)
+        session_manager.add_to_chat_history(user_id, "model", full_answer)
 
+        # Stop animation & delete placeholder
         stop_event.set()
         thinking_task.cancel()
         try:
@@ -310,12 +665,9 @@ async def callback_continue(callback: CallbackQuery):
         except Exception:
             pass
 
-        last_msg = await send_paginated(callback.message, answer)
-        if not is_complete and last_msg:
-            try:
-                await last_msg.edit_reply_markup(reply_markup=continue_keyboard(namespace))
-            except Exception:
-                pass
+        await send_formatted_response(
+            callback.message, full_answer, user_id, namespace, is_complete,
+        )
 
     except Exception as e:
         stop_event.set()
@@ -325,17 +677,31 @@ async def callback_continue(callback: CallbackQuery):
         except Exception:
             pass
         logger.error(f"Continue error for user {user_id}: {e}")
-        if "RATE_LIMIT_EXCEEDED" in str(e):
-            await callback.message.answer("⏳ The AI is currently at maximum capacity. Please wait about 1 minute and try again.", parse_mode=ParseMode.HTML)
-        else:
-            await callback.message.answer(prompts['messages']['error_inference'], parse_mode=ParseMode.HTML)
+        await callback.message.answer(get_friendly_error(str(e)), parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
 
 
+# ---------------------------------------------------------------------------
+# Handlers — document upload
+# ---------------------------------------------------------------------------
+
+
+@dp.message(F.document)
+async def handle_document(message: Message) -> None:
+    await message.answer(
+        "📁 Direct file uploads are disabled.\nUse /books to select a book from the library.",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Handlers — main text handler
+# ---------------------------------------------------------------------------
+
 
 @dp.message(F.text)
-async def handle_question(message: Message):
+async def handle_question(message: Message) -> None:
     user_id = message.from_user.id
 
     namespace = session_manager.get_user_session(user_id)
@@ -343,9 +709,36 @@ async def handle_question(message: Message):
         await message.answer(prompts['messages']['cache_expired'], parse_mode=ParseMode.HTML)
         return
 
-    # 1. Fire off a placeholder immediately so the user sees action right away
-    placeholder = await message.answer(THINKING_FRAMES[0])
+    raw_text = message.text.strip()
 
+    # --- Number shortcut: "1", "2", "3" → select stored follow-up ---
+    if raw_text in ("1", "2", "3"):
+        idx = int(raw_text) - 1
+        followup = session_manager.get_followup(user_id, idx)
+        if followup:
+            raw_text = followup
+
+    # --- "yes" / "Yes" → continue previous topic ---
+    if raw_text.lower() == "yes":
+        raw_text = "Please continue with more detail on this topic"
+
+    await _process_question(message, user_id, namespace, raw_text)
+
+
+# ---------------------------------------------------------------------------
+# Core question processor (shared by handle_question + follow-up callback)
+# ---------------------------------------------------------------------------
+
+
+async def _process_question(
+    message: Message,
+    user_id: int,
+    namespace: str,
+    question: str,
+) -> None:
+    """Show thinking animation, collect full response silently, dispatch to mode handler."""
+
+    placeholder = await message.answer(THINKING_FRAMES[0])
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
     thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
@@ -353,60 +746,36 @@ async def handle_question(message: Message):
     try:
         history = session_manager.get_chat_history(user_id)
         mode = session_manager.get_user_mode(user_id)
-        
-        stream_generator = gemini_service.query_rag_stream(namespace, message.text, history, mode)
-        
-        full_answer = ""
-        is_complete_final = True
-        last_edit_time = 0
-        current_msg = placeholder
-        
-        async for chunk_text, chunk_complete in stream_generator:
-            if not stop_event.is_set():
-                stop_event.set()
-                thinking_task.cancel()
-                
-            full_answer += chunk_text
-            if chunk_complete is not None:
-                is_complete_final = chunk_complete
-                
-            current_time = asyncio.get_event_loop().time()
-            if current_time - last_edit_time > 1.5:
-                formatted = format_for_telegram(full_answer)
-                if len(formatted) < 4000:
-                    try:
-                        await current_msg.edit_text(formatted + " ✍️", parse_mode=ParseMode.HTML)
-                        last_edit_time = current_time
-                    except Exception:
-                        pass
-                        
-        # Stream finished
-        # 1. Truncate cleanly if cut off
-        if not is_complete_final:
+
+        # Collect the FULL response silently — no intermediate edits
+        full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
+
+        # Truncate cleanly if cut off
+        if not is_complete:
             match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
             if match:
                 full_answer = match.group(1).strip() + "..."
             else:
                 full_answer = full_answer.rsplit(' ', 1)[0] + "..."
 
-        session_manager.add_to_chat_history(user_id, "user", message.text)
+        session_manager.add_to_chat_history(user_id, "user", question)
         session_manager.add_to_chat_history(user_id, "model", full_answer)
 
-        # 2. Delete the streaming placeholder if possible
+        # Stop animation & delete placeholder
+        stop_event.set()
+        thinking_task.cancel()
         try:
-            await current_msg.delete()
+            await placeholder.delete()
         except Exception:
             pass
 
-        # 3. Send final formatted text
-        last_msg = await send_paginated(message, full_answer)
-        if not is_complete_final and last_msg:
-            try:
-                await last_msg.edit_reply_markup(
-                    reply_markup=continue_keyboard(namespace)
-                )
-            except Exception:
-                pass
+        # Dispatch based on mode
+        if mode == "quiz":
+            await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
+        elif mode == "flashcards":
+            await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
+        else:
+            await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
 
     except Exception as e:
         stop_event.set()
@@ -416,30 +785,16 @@ async def handle_question(message: Message):
         except Exception:
             pass
 
-        error_msg = str(e)
-        logger.error(f"Inference error for user {user_id}: {error_msg}")
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            m = re.search(r'retry in ([\d\.]+)s', error_msg)
-            wait = int(float(m.group(1))) + 1 if m else 30
-            if wait > 60:
-                await message.answer("⏳ The AI is currently too busy. Please try again in a minute.", parse_mode=ParseMode.HTML)
-            else:
-                await message.answer(
-                    f"⏳ You're asking too fast! Please wait <b>{wait}s</b> and try again.",
-                    parse_mode=ParseMode.HTML
-                )
-        else:
-            if len(error_msg) > 2000:
-                error_msg = error_msg[:2000] + "\n...[truncated]"
-            await message.answer(prompts['messages']['error_inference'] + f"\n\n<pre>{html.escape(error_msg)}</pre>", parse_mode=ParseMode.HTML)
+        logger.error(f"Inference error for user {user_id}: {e}")
+        await message.answer(get_friendly_error(str(e)), parse_mode=ParseMode.HTML)
     finally:
         typing_task.cancel()
-
 
 
 # ---------------------------------------------------------------------------
 # Webhook / Startup
 # ---------------------------------------------------------------------------
+
 
 async def on_startup(bot: Bot) -> None:
     webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
