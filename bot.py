@@ -25,6 +25,7 @@ from aiohttp import web
 import gemini_service
 import session_manager
 from middlewares import RateLimitMiddleware
+from rich_api import send_chunked_rich_message
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -157,16 +158,22 @@ def build_followup_keyboard(
     namespace: str,
     include_continue: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    """Build an inline keyboard with up to 3 follow-up buttons + optional continue."""
+    """Build an inline keyboard with just numerical follow-up buttons + optional continue."""
     if not followups and not include_continue:
         return None
 
     rows: list[list[InlineKeyboardButton]] = []
-    for idx, q in enumerate(followups[:3]):
-        label = q if len(q) <= 60 else q[:57] + "…"
-        rows.append([InlineKeyboardButton(text=f"{idx + 1}. {label}", callback_data=f"fq|{idx}")])
+    
+    # Put all number buttons in one row
+    if followups:
+        number_row = []
+        for idx in range(len(followups[:3])):
+            number_row.append(InlineKeyboardButton(text=f"[{idx + 1}]", callback_data=f"fq|{idx}"))
+        rows.append(number_row)
+        
     if include_continue:
         rows.append([InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")])
+        
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
@@ -328,33 +335,26 @@ async def send_formatted_response(
     namespace: str,
     is_complete: bool = True,
 ) -> None:
-    """Parse follow-ups, format HTML, split into ≤4000-char chunks, attach keyboard to last chunk."""
+    """Send using the new Bot API 10.1 rich message chunking."""
 
     body, followups = parse_followups(text)
     session_manager.set_followups(user_id, followups)
 
-    formatted = format_for_telegram(body)
+    # Append follow-ups in bold italic
+    if followups:
+        body += "\n\n***\n"
+        for i, q in enumerate(followups):
+            body += f"***{i+1}. {q}***\n"
+
     keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
 
-    MAX_LEN = 4000
-
-    if len(formatted) <= MAX_LEN:
-        await message.answer(formatted, parse_mode=ParseMode.HTML, reply_markup=keyboard)
-        return
-
-    # Split by paragraphs, attach keyboard to last chunk
-    paragraphs = formatted.split('\n\n')
-    current = ""
-    for para in paragraphs:
-        addition = para + "\n\n"
-        if len(current) + len(addition) > MAX_LEN:
-            if current.strip():
-                await message.answer(current.strip(), parse_mode=ParseMode.HTML)
-            current = addition
-        else:
-            current += addition
-    if current.strip():
-        await message.answer(current.strip(), parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    # Note: message.message_thread_id handles Topic replies automatically if present
+    await send_chunked_rich_message(
+        chat_id=message.chat.id,
+        message_thread_id=message.message_thread_id,
+        markdown_text=body,
+        keyboard=keyboard.model_dump() if keyboard else None
+    )
 
 
 # ---------------------------------------------------------------------------
