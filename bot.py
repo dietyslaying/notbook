@@ -24,7 +24,7 @@ from aiohttp import web
 
 import gemini_service
 import session_manager
-from middlewares import RateLimitMiddleware
+from middlewares import RateLimitMiddleware, ContentFilterMiddleware
 from rich_api import send_chunked_rich_message
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,7 @@ else:
 
 dp = Dispatcher()
 dp.message.middleware(RateLimitMiddleware())
+dp.message.middleware(ContentFilterMiddleware())
 
 # ---------------------------------------------------------------------------
 # Thinking animation frames (study-themed)
