@@ -81,7 +81,7 @@ class ContentFilterMiddleware(BaseMiddleware):
                 
             if event.text.startswith('/'):
                 command = event.text.split()[0].lower()
-                allowed_commands = ["/start", "/books", "/library", "/settings", "/help", "/mode"]
+                allowed_commands = ["/start", "/books", "/library", "/settings", "/help", "/mode", "/topics"]
                 if command not in allowed_commands:
                     return await reject_and_warn("Unrecognized command.")
 
