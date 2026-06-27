@@ -158,15 +158,15 @@ def markdown_to_rich_message(md_text: str) -> dict:
     }
 
 async def send_chunked_rich_message(
+    bot,
     chat_id: int, 
     message_thread_id: int | None, 
     markdown_text: str, 
-    keyboard: dict | None = None
+    keyboard = None
 ):
-    """Parse markdown, chunk into smaller message parts, and send sequentially."""
+    """Parse markdown, chunk into smaller message parts, and send sequentially natively."""
     import asyncio
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    url = f"https://api.telegram.org/bot{token}/sendRichMessage"
+    from aiogram.types import InputRichMessage
     
     # Parse entire AST to get all root blocks
     rich_msg = markdown_to_rich_message(markdown_text)
@@ -175,50 +175,42 @@ async def send_chunked_rich_message(
     if not all_blocks:
         return
         
-    # Chunking strategy: send each major section (heading+paragraphs) as a chunk
+    # Chunking strategy: send each major section or paragraph as a distinct chunk
     chunks = []
     current_chunk = []
     
     for block in all_blocks:
         t = block["type"]
         if t == "section_heading" and current_chunk:
-            # Start a new chunk before a heading
             chunks.append(current_chunk)
             current_chunk = [block]
         elif t in ("table", "list", "block_quotation"):
-            # Put large structures in their own chunk if possible
             if current_chunk:
                 chunks.append(current_chunk)
                 current_chunk = []
             chunks.append([block])
         else:
             current_chunk.append(block)
-            # If current chunk has > 2 paragraphs, break it off
-            if len([b for b in current_chunk if b["type"] == "paragraph"]) >= 2:
+            # Break off IMMEDIATELY after 1 paragraph to ensure high readability
+            if len([b for b in current_chunk if b["type"] == "paragraph"]) >= 1:
                 chunks.append(current_chunk)
                 current_chunk = []
                 
     if current_chunk:
         chunks.append(current_chunk)
         
-    async with aiohttp.ClientSession() as session:
-        for i, chunk in enumerate(chunks):
-            is_last = (i == len(chunks) - 1)
+    for i, chunk in enumerate(chunks):
+        is_last = (i == len(chunks) - 1)
+        
+        # Validate raw dict into native aiogram InputRichMessage
+        native_rich = InputRichMessage.model_validate({"blocks": chunk})
+        
+        await bot.send_rich_message(
+            chat_id=chat_id,
+            message_thread_id=message_thread_id,
+            rich_message=native_rich,
+            reply_markup=keyboard if is_last else None
+        )
             
-            payload = {
-                "chat_id": chat_id,
-                "rich_message": {"blocks": chunk}
-            }
-            if message_thread_id:
-                payload["message_thread_id"] = message_thread_id
-            if is_last and keyboard:
-                payload["reply_markup"] = keyboard
-                
-            async with session.post(url, json=payload) as response:
-                data = await response.json()
-                if not data.get("ok"):
-                    # Fallback to standard text if Bot API 10.1 is not available locally
-                    print(f"Rich payload failed: {data}")
-                    
-            if not is_last:
-                await asyncio.sleep(0.5) # Natural delay for UX
+        if not is_last:
+            await asyncio.sleep(1.0) # Natural delay for UX

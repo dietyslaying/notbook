@@ -336,26 +336,37 @@ async def send_formatted_response(
     namespace: str,
     is_complete: bool = True,
 ) -> None:
-    """Send using the new Bot API 10.1 rich message chunking."""
+    """Send using the new Bot API 10.1 rich message chunking natively."""
 
     body, followups = parse_followups(text)
     session_manager.set_followups(user_id, followups)
-
-    # Append follow-ups in bold italic
-    if followups:
-        body += "\n\n***\n"
-        for i, q in enumerate(followups):
-            body += f"***{i+1}. {q}***\n"
-
+    
     keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
 
     # Note: message.message_thread_id handles Topic replies automatically if present
     await send_chunked_rich_message(
+        bot,
         chat_id=message.chat.id,
         message_thread_id=message.message_thread_id,
         markdown_text=body,
-        keyboard=keyboard.model_dump() if keyboard else None
+        keyboard=None  # We no longer attach keyboards to the main rich chunk
     )
+    
+    # Send follow-ups or continue button as a distinct, separate message bubble
+    if followups or not is_complete:
+        followup_text = ""
+        if followups:
+            followup_text = "📌 <b>Related questions:</b>\n\n" + "\n".join(f"{i+1}. <i>{q}</i>" for i, q in enumerate(followups))
+        else:
+            followup_text = "📖 <b>Continue reading...</b>"
+            
+        await bot.send_message(
+            chat_id=message.chat.id,
+            message_thread_id=message.message_thread_id,
+            text=followup_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +397,9 @@ async def handle_quiz_response(
             correct_option_id=quiz_data['correct'],
             explanation=explanation[:200],
             is_anonymous=False,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➡️ Next Question", callback_data="next_quiz")]
+            ])
         )
     except Exception as e:
         logger.warning(f"Quiz poll failed, falling back to text: {e}")
@@ -618,6 +632,30 @@ async def callback_flip(callback: CallbackQuery) -> None:
         f"<b>🔄 Answer</b>\n\n{back_html}",
         parse_mode=ParseMode.HTML,
     )
+
+
+# ---------------------------------------------------------------------------
+# Handlers — next quiz callback
+# ---------------------------------------------------------------------------
+
+
+@dp.callback_query(F.data == "next_quiz")
+async def callback_next_quiz(callback: CallbackQuery) -> None:
+    """Triggered when the user wants another quiz question."""
+    user_id = callback.from_user.id
+    namespace = session_manager.get_user_session(user_id)
+    
+    if not namespace:
+        await callback.answer(prompts['messages']['cache_expired'], show_alert=True)
+        return
+
+    # Simulate the user asking for another question on the topic
+    question = "Ask me another quiz question on this topic, but slightly harder or exploring a different angle."
+    
+    await callback.answer("Generating next question...")
+    
+    # Process it as a normal question
+    await _process_question(callback.message, user_id, namespace, question)
 
 
 # ---------------------------------------------------------------------------
