@@ -44,6 +44,12 @@ def _parse_rich_text(children: list) -> dict | list | str:
 
 def _parse_blocks(ast: list) -> list[dict]:
     """Recursively parse block mistune AST to RichBlock objects."""
+    
+    def _ensure_blocks(parsed_blocks):
+        if not parsed_blocks:
+            return [{"type": "paragraph", "text": {"type": "plain", "text": "\u200b"}}]
+        return parsed_blocks
+
     blocks = []
     for node in ast:
         t = node['type']
@@ -66,7 +72,7 @@ def _parse_blocks(ast: list) -> list[dict]:
         elif t == 'block_quote':
             blocks.append({
                 "type": "block_quotation",
-                "blocks": _parse_blocks(node.get('children', []))
+                "blocks": _ensure_blocks(_parse_blocks(node.get('children', [])))
             })
             
         elif t == 'block_code':
@@ -114,7 +120,7 @@ def _parse_blocks(ast: list) -> list[dict]:
 
                 li_block = {
                     "type": "list_item",
-                    "blocks": _parse_blocks(item_children),
+                    "blocks": _ensure_blocks(_parse_blocks(item_children)),
                     "label": label
                 }
                 if has_checkbox:
@@ -123,10 +129,11 @@ def _parse_blocks(ast: list) -> list[dict]:
                     
                 list_items.append(li_block)
                 
-            blocks.append({
-                "type": "list",
-                "items": list_items
-            })
+            if list_items:
+                blocks.append({
+                    "type": "list",
+                    "items": list_items
+                })
             
         elif t == 'table':
             # Mistune AST for tables has 'table_head' and 'table_body'
@@ -139,19 +146,21 @@ def _parse_blocks(ast: list) -> list[dict]:
                         align = cell.get('attrs', {}).get('align')
                         cell_data = {
                             "type": "table_cell",
-                            "text": _parse_rich_text(cell.get('children', [])),
-                            "is_header": is_header
+                            "is_header": is_header,
+                            "blocks": _ensure_blocks(_parse_blocks(cell.get('children', [])))
                         }
                         if align:
                             cell_data["align"] = align
                         row_cells.append(cell_data)
-                    cells.append(row_cells)
+                    if row_cells:
+                        cells.extend(row_cells)
                     
-            blocks.append({
-                "type": "table",
-                "cells": cells,
-                "is_bordered": True
-            })
+            if cells:
+                blocks.append({
+                    "type": "table",
+                    "cells": cells,
+                    "is_bordered": True
+                })
             
         elif t == 'block_text':
             blocks.extend(_parse_blocks(node.get('children', [])))
@@ -216,12 +225,23 @@ async def send_chunked_rich_message(
         # Validate raw dict into native aiogram InputRichMessage
         native_rich = InputRichMessage.model_validate({"blocks": chunk})
         
-        await bot.send_rich_message(
-            chat_id=chat_id,
-            message_thread_id=message_thread_id,
-            rich_message=native_rich,
-            reply_markup=keyboard if is_last else None
-        )
+        try:
+            await bot.send_rich_message(
+                chat_id=chat_id,
+                message_thread_id=message_thread_id,
+                rich_message=native_rich,
+                reply_markup=keyboard if is_last else None
+            )
+        except Exception as e:
+            # Fallback to standard message if Telegram rejects the rich message structure
+            # To avoid sending the full text multiple times, we only fallback on the first chunk
+            if i == 0:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    message_thread_id=message_thread_id,
+                    text=markdown_text[:4000],  # Trim to max length
+                    reply_markup=keyboard if is_last else None
+                )
             
         if not is_last:
             await asyncio.sleep(1.0) # Natural delay for UX
