@@ -5,13 +5,16 @@ import mistune
 def _parse_rich_text(children: list) -> dict | list | str:
     """Recursively parse inline mistune AST to RichText objects."""
     if not children:
-        return ""
+        return {"type": "plain", "text": "\u200b"}
     
     parts = []
     for node in children:
         t = node['type']
         if t == 'text':
-            parts.append({"type": "plain", "text": node.get('raw', '')})
+            raw = node.get('raw', '')
+            if not raw:
+                raw = "\u200b"
+            parts.append({"type": "plain", "text": raw})
         elif t == 'strong':
             parts.append({"type": "bold", "text": _parse_rich_text(node.get('children', []))})
         elif t == 'emphasis':
@@ -27,8 +30,14 @@ def _parse_rich_text(children: list) -> dict | list | str:
             if 'children' in node:
                 parts.extend(_parse_rich_text(node['children']))
             elif 'raw' in node:
-                parts.append({"type": "plain", "text": node['raw']})
+                raw = node['raw']
+                if not raw:
+                    raw = "\u200b"
+                parts.append({"type": "plain", "text": raw})
     
+    if not parts:
+        return {"type": "plain", "text": "\u200b"}
+        
     if len(parts) == 1:
         return parts[0]
     return parts
@@ -62,16 +71,18 @@ def _parse_blocks(ast: list) -> list[dict]:
             
         elif t == 'block_code':
             lang = node.get('attrs', {}).get('info')
+            raw = node.get('raw') or '\u200b'
             blocks.append({
                 "type": "preformatted",
-                "text": {"type": "plain", "text": node.get('raw', '')},
+                "text": {"type": "plain", "text": raw},
                 "language": lang if lang else ""
             })
             
         elif t == 'block_math':
+            raw = node.get('raw') or '\u200b'
             blocks.append({
                 "type": "mathematical_expression",
-                "expression": node.get('raw', '')
+                "expression": raw
             })
             
         elif t == 'list':

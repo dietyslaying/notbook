@@ -473,6 +473,45 @@ async def cmd_start(message: Message) -> None:
     await message.answer(greeting, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard())
 
 
+@dp.message(Command("help", "settings"))
+async def cmd_help(message: Message) -> None:
+    help_text = (
+        "📚 <b>NotBook Help & Settings</b>\n\n"
+        "Here are the commands you can use:\n"
+        "• /start - Restart the bot\n"
+        "• /library or /books - Choose a book to study\n"
+        "• /topics or /mode - Change your study mode (Quiz, Flashcards, etc.)\n"
+        "• /help - Show this message\n\n"
+        "<i>More settings features coming soon!</i>"
+    )
+    await message.answer(
+        help_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📚 Open Library", callback_data="open_books")],
+            [InlineKeyboardButton(text="🎛️ Change Study Mode", callback_data="open_modes")]
+        ])
+    )
+
+
+@dp.message(Command("topics", "mode"))
+async def cmd_topics(message: Message) -> None:
+    keyboard = [
+        [InlineKeyboardButton(text="💬 Normal Chat", callback_data="setmode|chat")],
+        [InlineKeyboardButton(text="❓ Quiz Mode", callback_data="setmode|quiz")],
+        [InlineKeyboardButton(text="🗂️ Flashcards", callback_data="setmode|flashcards")],
+        [InlineKeyboardButton(text="📝 Notes", callback_data="setmode|notes")],
+        [InlineKeyboardButton(text="💡 Q&A Practice", callback_data="setmode|qna")],
+        [InlineKeyboardButton(text="🔄 Spaced Review", callback_data="setmode|spaced_review")],
+        [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")],
+    ]
+    await message.answer(
+        "🎛️ <b>Study Modes</b>\nChoose a mode to change how I respond:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+    )
+
+
 @dp.message(Command("books", "library"))
 async def cmd_books(message: Message) -> None:
     books = gemini_service.get_available_books(message.from_user.id)
