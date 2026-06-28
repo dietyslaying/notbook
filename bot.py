@@ -338,24 +338,10 @@ async def send_formatted_response(
     # HTML format the body
     html_body = format_for_telegram(body)
 
-    # ADHD-friendly chunking: Split by double newlines, group up to ~400 chars per bubble
+    # ADHD-friendly chunking: Send every paragraph/bullet point as its own message bubble!
+    # This mimics a human texting.
     paragraphs = html_body.split('\n\n')
-    chunks = []
-    current_chunk = ""
-    
-    for p in paragraphs:
-        if not p.strip(): continue
-        if len(current_chunk) + len(p) > 400 and current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = p
-        else:
-            if current_chunk:
-                current_chunk += "\n\n" + p
-            else:
-                current_chunk = p
-                
-    if current_chunk:
-        chunks.append(current_chunk)
+    chunks = [p.strip() for p in paragraphs if p.strip()]
         
     if not chunks:
         chunks = ["(No content generated)"]
@@ -367,7 +353,7 @@ async def send_formatted_response(
             parse_mode=ParseMode.HTML
         )
         if i < len(chunks) - 1:
-            await asyncio.sleep(1.0) # Natural delay between reading bubbles
+            await asyncio.sleep(1.5) # Natural delay between reading bubbles
 
     # Send follow-ups or continue button as a distinct, separate message bubble
     if followups or not is_complete:
