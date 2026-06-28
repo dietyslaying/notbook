@@ -66,16 +66,12 @@ dp.message.middleware(ContentFilterMiddleware())
 # ---------------------------------------------------------------------------
 
 THINKING_FRAMES = [
-    "📖  Checking the archives…",
-    "🔍  Cross-referencing chapters…",
-    "📚  Leafing through the pages…",
-    "🗂️  Consulting the index…",
-    "📝  Pulling relevant sections…",
-    "🔬  Examining the material…",
-    "📖  Almost there…",
-    "🗃️  Retrieving from the stacks…",
-    "🧠  Synthesising findings…",
-    "✍️  Composing your answer…",
+    "🤔 Thinking...",
+    "🔍 Searching textbook...",
+    "📖 Reading relevant chapters...",
+    "🧠 Synthesizing information...",
+    "✍️ Generating summary...",
+    "✨ Formatting response...",
 ]
 
 # ---------------------------------------------------------------------------
@@ -93,8 +89,15 @@ def format_for_telegram(text: str) -> str:
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
     # ## Headers → <b>Headers</b>
     text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-    # Blockquotes (note: > becomes &gt; after html.escape)
+    
+    # Fake unicode boxes (Telegram pre-formatting)
+    text = re.sub(r'(╭─+╮\n.*?\n╰─+╯)', r'<pre>\1</pre>', text, flags=re.DOTALL)
+
+    # Expandable blockquotes (>+)
+    text = re.sub(r'^&gt;\+\s*(.+)$', r'<blockquote expandable>\1</blockquote>', text, flags=re.MULTILINE)
+    # Standard blockquotes
     text = re.sub(r'^&gt;\s*(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
+    
     # Fenced code blocks
     text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
     # Inline code
@@ -131,41 +134,51 @@ def get_friendly_error(error_msg: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def parse_followups(text: str) -> tuple[str, list[str]]:
-    """Extract follow-up questions from the end of the AI's response."""
-    # Try to find the follow-up block
-    pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
-    match = re.search(pattern, text)
+def parse_dynamic_buttons(text: str) -> tuple[str, list[str]]:
+    """Extract <BUTTONS> from the end of the AI's response."""
+    pattern = r'<BUTTONS>\s*(.+?)\s*</BUTTONS>'
+    match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
     if not match:
         return text.strip(), []
 
-    body = text[:match.start()].strip()
-    block = match.group(1)
-    questions: list[str] = []
-    for line in block.strip().splitlines():
-        q = re.sub(r'^\s*\d+\.\s*', '', line).strip()
-        if q:
-            questions.append(q)
-    return body, questions[:3]
+    body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
+    raw_buttons = match.group(1)
+    
+    # Split by comma or newline
+    if ',' in raw_buttons:
+        buttons = [b.strip() for b in raw_buttons.split(',')]
+    else:
+        buttons = [b.strip() for b in raw_buttons.splitlines()]
+        
+    buttons = [b for b in buttons if b]
+    return body.strip(), buttons
 
 
-def build_followup_keyboard(
-    followups: list[str],
+def build_dynamic_keyboard(
+    buttons: list[str],
     namespace: str,
     include_continue: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    """Build an inline keyboard with just numerical follow-up buttons + optional continue."""
-    if not followups and not include_continue:
+    """Build a 2-column inline keyboard for contextual quick actions."""
+    if not buttons and not include_continue:
         return None
 
     rows: list[list[InlineKeyboardButton]] = []
     
-    # Put all number buttons in one row
-    if followups:
-        number_row = []
-        for idx in range(len(followups[:3])):
-            number_row.append(InlineKeyboardButton(text=f"[{idx + 1}]", callback_data=f"fq|{idx}"))
-        rows.append(number_row)
+    # 2 columns for chip buttons
+    row = []
+    for btn_text in buttons[:8]:  # Limit to 8 buttons max
+        # Callback data length limit is 64 bytes. We use 'db|' prefix + namespace + button text.
+        # It's safer to just send the button text back into the chat as a message.
+        # Since Telegram inline buttons MUST have callback_data, we'll store the text.
+        # Format: db|text
+        cb_data = f"db|{btn_text}"[:64]
+        row.append(InlineKeyboardButton(text=btn_text, callback_data=cb_data))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
         
     if include_continue:
         rows.append([InlineKeyboardButton(text="📖  Continue reading…", callback_data=f"cont|{namespace}")])
@@ -329,11 +342,9 @@ async def send_formatted_response(
 ) -> None:
     """Process followups, format HTML, and send the final static response in ADHD-friendly chunks."""
 
-    body, followups = parse_followups(text)
-    if followups:
-        session_manager.set_followups(user_id, followups)
+    body, buttons = parse_dynamic_buttons(text)
         
-    keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
+    keyboard = build_dynamic_keyboard(buttons, namespace, include_continue=not is_complete)
 
     # ADHD-friendly chunking: We use '---' as a delimiter to separate major message bubbles.
     # The AI is instructed to use '---' to break up its response into logical sections.
@@ -630,26 +641,34 @@ async def callback_book(callback: CallbackQuery) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Handlers — follow-up question callback
+# Handlers — dynamic button callback
 # ---------------------------------------------------------------------------
 
 
-@dp.callback_query(F.data.startswith("fq|"))
-async def callback_followup(callback: CallbackQuery) -> None:
-    """User tapped one of the three follow-up question buttons."""
-    idx = int(callback.data.split("|")[1])
-    user_id = callback.from_user.id
-    question = session_manager.get_followup(user_id, idx)
-
-    if not question:
-        await callback.answer("Follow-up expired. Please ask a new question.", show_alert=True)
+@dp.callback_query(F.data.startswith("db|"))
+async def callback_dynamic_button(callback: CallbackQuery) -> None:
+    """User tapped one of the dynamic chip buttons."""
+    # Data is db|text
+    try:
+        question = callback.data.split("|", 1)[1]
+    except IndexError:
+        await callback.answer("Error parsing button data.")
         return
+
+    user_id = callback.from_user.id
 
     # Remove buttons from the triggering message
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+    
+    # Send the button text as a fake user message to provide context
+    try:
+        await callback.message.answer(f"🗣 <i>{html.escape(question)}</i>", parse_mode=ParseMode.HTML)
+    except Exception:
+        pass
+
     await callback.answer()
 
     namespace = session_manager.get_user_session(user_id)
