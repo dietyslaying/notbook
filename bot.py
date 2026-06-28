@@ -884,35 +884,58 @@ async def _process_question(
         history = session_manager.get_chat_history(user_id)
         mode = session_manager.get_user_mode(user_id)
 
-        # Collect the FULL response silently — no intermediate edits
-        full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
+        if mode in ("quiz", "flashcards"):
+            # Quiz & Flashcards require parsing structured data at the end, so we buffer silently
+            full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
+            
+            # Truncate cleanly if cut off
+            if not is_complete:
+                match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
+                if match:
+                    full_answer = match.group(1).strip() + "..."
+                else:
+                    full_answer = full_answer.rsplit(' ', 1)[0] + "..."
+            
+            session_manager.add_to_chat_history(user_id, "user", question)
+            session_manager.add_to_chat_history(user_id, "model", full_answer)
 
-        # Truncate cleanly if cut off
-        if not is_complete:
-            match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
-            if match:
-                full_answer = match.group(1).strip() + "..."
-            else:
-                full_answer = full_answer.rsplit(' ', 1)[0] + "..."
+            # Stop animation & delete placeholder
+            stop_event.set()
+            thinking_task.cancel()
+            try:
+                await placeholder.delete()
+            except Exception:
+                pass
 
-        session_manager.add_to_chat_history(user_id, "user", question)
-        session_manager.add_to_chat_history(user_id, "model", full_answer)
+            # Dispatch
+            if mode == "quiz":
+                await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
+            elif mode == "flashcards":
+                await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
 
-        # Stop animation & delete placeholder
-        stop_event.set()
-        thinking_task.cancel()
-        try:
-            await placeholder.delete()
-        except Exception:
-            pass
-
-        # Dispatch based on mode
-        if mode == "quiz":
-            await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
-        elif mode == "flashcards":
-            await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
         else:
-            await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+            # Default Reading Mode: Live Streaming!
+            stop_event.set()
+            thinking_task.cancel()
+            
+            # Ensure the placeholder shows exactly the desired sequence from the spec
+            try:
+                await placeholder.edit_text("🧠 Thinking...")
+                await asyncio.sleep(0.3)
+                await placeholder.edit_text("🔍 Searching knowledge base...")
+                await asyncio.sleep(0.5)
+                await placeholder.edit_text("📚 Reading retrieved documents...")
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+            from stream_handler import stream_reading_response
+            full_answer, is_complete = await stream_reading_response(
+                placeholder, namespace, question, history, mode, build_dynamic_keyboard
+            )
+            
+            session_manager.add_to_chat_history(user_id, "user", question)
+            session_manager.add_to_chat_history(user_id, "model", full_answer)
 
     except Exception as e:
         stop_event.set()
