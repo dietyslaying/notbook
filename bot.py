@@ -89,12 +89,12 @@ def format_for_telegram(text: str) -> str:
     Order matters: escape HTML first, then layer Markdown conversions.
     """
     text = html.escape(text)
-    # **bold** → <b>bold</b>
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    # **bold** → <b>bold</b> (with DOTALL to support multi-line bold)
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
     # ## Headers → <b>Headers</b>
     text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-    # Blockquotes
-    text = re.sub(r'^>\s*(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
+    # Blockquotes (note: > becomes &gt; after html.escape)
+    text = re.sub(r'^&gt;\s*(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
     # Fenced code blocks
     text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
     # Inline code
@@ -337,7 +337,19 @@ async def send_formatted_response(
 
     # ADHD-friendly chunking: We use '---' as a delimiter to separate major message bubbles.
     # The AI is instructed to use '---' to break up its response into logical sections.
-    raw_chunks = body.split('---')
+    raw_chunks = re.split(r'\n+\s*---\s*\n+', body)
+    
+    # If the AI failed to use '---', fallback to automatic chunking to guarantee message bubbles!
+    if len(raw_chunks) == 1:
+        paragraphs = body.split('\n\n')
+        paragraphs = [p for p in paragraphs if p.strip()]
+        if len(paragraphs) <= 3:
+            raw_chunks = paragraphs
+        else:
+            chunk_size = math.ceil(len(paragraphs) / 3)
+            raw_chunks = []
+            for i in range(0, len(paragraphs), chunk_size):
+                raw_chunks.append("\n\n".join(paragraphs[i:i+chunk_size]))
     
     chunks = []
     for rc in raw_chunks:
