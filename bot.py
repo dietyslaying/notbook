@@ -335,14 +335,17 @@ async def send_formatted_response(
         
     keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
 
-    # HTML format the body
-    html_body = format_for_telegram(body)
-
-    # ADHD-friendly chunking: Send every paragraph/bullet point as its own message bubble!
-    # This mimics a human texting.
-    paragraphs = html_body.split('\n\n')
-    chunks = [p.strip() for p in paragraphs if p.strip()]
-        
+    # ADHD-friendly chunking: We use '---' as a delimiter to separate major message bubbles.
+    # The AI is instructed to use '---' to break up its response into logical sections.
+    raw_chunks = body.split('---')
+    
+    chunks = []
+    for rc in raw_chunks:
+        if rc.strip():
+            # Format each chunk to HTML individually
+            html_chunk = format_for_telegram(rc.strip())
+            chunks.append(html_chunk)
+            
     if not chunks:
         chunks = ["(No content generated)"]
 

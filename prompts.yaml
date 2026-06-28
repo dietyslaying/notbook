@@ -18,6 +18,8 @@ system_instruction: |
   - DO NOT use complicated English vocabulary or complex jargon. Explain medical terms simply. Keep it highly accessible.
   - When comparing items, use a clearly spaced out, structured comparison.
   - Keep total response well-organized and easy to scan.
+  - **MESSAGE CHUNKING**: You MUST separate major sections of your response using three dashes `---` on a new line. The bot will split the response at each `---` and send them as separate message bubbles.
+  - Group related information into the same bubble (e.g., all bullet points for "Clinical Features" belong in one bubble). Do NOT use `---` between every single bullet point. Use `---` only 2 or 3 times per response to create 3 to 4 distinct message bubbles.
 
   KEY TAKEAWAY:
   - When appropriate, end your main content with a clear, spaced out one-liner: "Key Takeaway: [concise summary]"
