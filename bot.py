@@ -93,6 +93,8 @@ def format_for_telegram(text: str) -> str:
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     # ## Headers → <b>Headers</b>
     text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    # Blockquotes
+    text = re.sub(r'^>\s*(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
     # Fenced code blocks
     text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
     # Inline code
@@ -125,13 +127,11 @@ def get_friendly_error(error_msg: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — follow-up questions
+# Helpers — AI formatting & logic
 # ---------------------------------------------------------------------------
 
 
 def parse_followups(text: str) -> tuple[str, list[str]]:
-    """Split AI response into (body, [followup_q1, followup_q2, followup_q3]).
-
     The AI is expected to append a block like:
         📌 Related questions:
         1. Question one?
@@ -330,39 +330,60 @@ def continue_keyboard(namespace: str) -> InlineKeyboardMarkup:
 
 
 async def send_formatted_response(
-    message: Message,
-    text: str,
-    user_id: int,
-    namespace: str,
-    is_complete: bool = True,
+    message: Message, text: str, user_id: int, namespace: str, is_complete: bool = True
 ) -> None:
-    """Send using the new Bot API 10.1 rich message chunking natively."""
+    """Process followups, format HTML, and send the final static response in ADHD-friendly chunks."""
 
     body, followups = parse_followups(text)
-    session_manager.set_followups(user_id, followups)
-    
+    if followups:
+        session_manager.set_followups(user_id, followups)
+        
     keyboard = build_followup_keyboard(followups, namespace, include_continue=not is_complete)
 
-    # Note: message.message_thread_id handles Topic replies automatically if present
-    await send_chunked_rich_message(
-        bot,
-        chat_id=message.chat.id,
-        message_thread_id=message.message_thread_id,
-        markdown_text=body,
-        keyboard=None  # We no longer attach keyboards to the main rich chunk
-    )
+    # HTML format the body
+    html_body = format_for_telegram(body)
+
+    # ADHD-friendly chunking: Split by double newlines, group up to ~400 chars per bubble
+    paragraphs = html_body.split('\n\n')
+    chunks = []
+    current_chunk = ""
     
+    for p in paragraphs:
+        if not p.strip(): continue
+        if len(current_chunk) + len(p) > 400 and current_chunk:
+            chunks.append(current_chunk)
+            current_chunk = p
+        else:
+            if current_chunk:
+                current_chunk += "\n\n" + p
+            else:
+                current_chunk = p
+                
+    if current_chunk:
+        chunks.append(current_chunk)
+        
+    if not chunks:
+        chunks = ["(No content generated)"]
+
+    # Send the chunks as separate message bubbles with a delay
+    for i, chunk in enumerate(chunks):
+        await message.answer(
+            text=chunk,
+            parse_mode=ParseMode.HTML
+        )
+        if i < len(chunks) - 1:
+            await asyncio.sleep(1.0) # Natural delay between reading bubbles
+
     # Send follow-ups or continue button as a distinct, separate message bubble
     if followups or not is_complete:
         followup_text = ""
         if followups:
-            followup_text = "📌 <b>Related questions:</b>\n\n" + "\n".join(f"{i+1}. <i>{q}</i>" for i, q in enumerate(followups))
-        else:
-            followup_text = "📖 <b>Continue reading...</b>"
-            
-        await bot.send_message(
-            chat_id=message.chat.id,
-            message_thread_id=message.message_thread_id,
+            followup_text = "<b>📌 Choose a related question:</b>"
+        elif not is_complete:
+            followup_text = "<i>The response is very long. Tap below to continue reading.</i>"
+
+        await asyncio.sleep(1.0) # Delay before followups
+        await message.answer(
             text=followup_text,
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard
@@ -670,12 +691,35 @@ async def callback_flip(callback: CallbackQuery) -> None:
     await callback.message.answer(
         f"<b>🔄 Answer</b>\n\n{back_html}",
         parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Next Flashcard", callback_data="next_flashcard")]])
     )
+
+
+# ---------------------------------------------------------------------------
+# Handlers — next flashcard callback
+# ---------------------------------------------------------------------------
+
+
+@dp.callback_query(F.data == "next_flashcard")
+async def callback_next_flashcard(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.answer()
+
+    namespace = session_manager.get_user_session(callback.from_user.id)
+    if not namespace:
+        await callback.message.answer(prompts['messages']['cache_expired'], parse_mode=ParseMode.HTML)
+        return
+
+    await _process_question(callback.message, callback.from_user.id, namespace, "Give me another flashcard on this topic")
 
 
 # ---------------------------------------------------------------------------
 # Handlers — next quiz callback
 # ---------------------------------------------------------------------------
+
 
 
 @dp.callback_query(F.data == "next_quiz")
