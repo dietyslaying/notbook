@@ -132,12 +132,7 @@ def get_friendly_error(error_msg: str) -> str:
 
 
 def parse_followups(text: str) -> tuple[str, list[str]]:
-    The AI is expected to append a block like:
-        📌 Related questions:
-        1. Question one?
-        2. Question two?
-        3. Question three?
-    """
+    """Extract follow-up questions from the end of the AI's response."""
     # Try to find the follow-up block
     pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
     match = re.search(pattern, text)
