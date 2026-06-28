@@ -382,10 +382,10 @@ async def send_formatted_response(
             await asyncio.sleep(1.5) # Natural delay between reading bubbles
 
     # Send follow-ups or continue button as a distinct, separate message bubble
-    if followups or not is_complete:
+    if buttons or not is_complete:
         followup_text = ""
-        if followups:
-            followup_text = "<b>📌 Choose a related question:</b>"
+        if buttons:
+            followup_text = "<b>📌 Choose an action or topic:</b>"
         elif not is_complete:
             followup_text = "<i>The response is very long. Tap below to continue reading.</i>"
 
