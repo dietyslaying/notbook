@@ -134,44 +134,61 @@ def get_friendly_error(error_msg: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def parse_dynamic_buttons(text: str) -> tuple[str, list[str]]:
-    """Extract <BUTTONS> from the end of the AI's response."""
+def parse_dynamic_buttons(text: str) -> tuple[str, list[str], list[str]]:
+    """Extract <BUTTONS> and related questions from the AI's response."""
+    # 1. Parse dynamic buttons
     pattern = r'<BUTTONS>\s*(.+?)\s*</BUTTONS>'
     match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
-    if not match:
-        return text.strip(), []
-
-    body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
-    raw_buttons = match.group(1)
     
-    # Split by comma or newline
-    if ',' in raw_buttons:
-        buttons = [b.strip() for b in raw_buttons.split(',')]
-    else:
-        buttons = [b.strip() for b in raw_buttons.splitlines()]
-        
-    buttons = [b for b in buttons if b]
-    return body.strip(), buttons
+    body = text
+    buttons = []
+    if match:
+        body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
+        raw_buttons = match.group(1)
+        if ',' in raw_buttons:
+            buttons = [b.strip() for b in raw_buttons.split(',')]
+        else:
+            buttons = [b.strip() for b in raw_buttons.splitlines()]
+        buttons = [b for b in buttons if b]
+
+    # 2. Extract follow-up questions
+    questions = []
+    fq_pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
+    fq_match = re.search(fq_pattern, body)
+    if fq_match:
+        questions_block = fq_match.group(1)
+        for line in questions_block.split('\n'):
+            line = line.strip()
+            if line and re.match(r'^\d+\.', line):
+                q = re.sub(r'^\d+\.\s*', '', line).strip()
+                if q:
+                    questions.append(q)
+
+    return body.strip(), questions, buttons
 
 
-def build_dynamic_keyboard(
+def build_combined_keyboard(
+    questions: list[str],
     buttons: list[str],
     namespace: str,
     include_continue: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    """Build a 2-column inline keyboard for contextual quick actions."""
-    if not buttons and not include_continue:
+    """Build a combined keyboard with full-width questions and 2-column quick actions."""
+    if not questions and not buttons and not include_continue:
         return None
 
     rows: list[list[InlineKeyboardButton]] = []
     
-    # 2 columns for chip buttons
+    # 1. Full width buttons for questions (max 3)
+    for i, q in enumerate(questions[:3]):
+        # Just use the dynamic button handler! It handles db|<text>
+        cb_data = f"db|{q}"[:64]
+        # Number the button, truncate text slightly to fit on mobile screens if needed
+        rows.append([InlineKeyboardButton(text=f"{i+1}. {q[:35]}...", callback_data=cb_data)])
+
+    # 2. 2 columns for chip buttons
     row = []
     for btn_text in buttons[:8]:  # Limit to 8 buttons max
-        # Callback data length limit is 64 bytes. We use 'db|' prefix + namespace + button text.
-        # It's safer to just send the button text back into the chat as a message.
-        # Since Telegram inline buttons MUST have callback_data, we'll store the text.
-        # Format: db|text
         cb_data = f"db|{btn_text}"[:64]
         row.append(InlineKeyboardButton(text=btn_text, callback_data=cb_data))
         if len(row) == 2:
@@ -342,17 +359,20 @@ async def send_formatted_response(
 ) -> None:
     """Process followups, format HTML, and send the final static response in ADHD-friendly chunks."""
 
-    body, buttons = parse_dynamic_buttons(text)
-        
-    keyboard = build_dynamic_keyboard(buttons, namespace, include_continue=not is_complete)
-
     # ADHD-friendly chunking: We use '---' as a delimiter to separate major message bubbles.
     # The AI is instructed to use '---' to break up its response into logical sections.
-    raw_chunks = re.split(r'\n+\s*---\s*\n+', body)
+    raw_chunks = re.split(r'\n+\s*---\s*\n+', text)
+    
+    # We still need to parse the final chunk for buttons in fallback mode
+    final_chunk = raw_chunks[-1]
+    final_chunk, questions, buttons = parse_dynamic_buttons(final_chunk)
+    raw_chunks[-1] = final_chunk
+        
+    keyboard = build_combined_keyboard(questions, buttons, namespace, include_continue=not is_complete)
     
     # If the AI failed to use '---', fallback to automatic chunking to guarantee message bubbles!
     if len(raw_chunks) == 1:
-        paragraphs = body.split('\n\n')
+        paragraphs = raw_chunks[0].split('\n\n')
         paragraphs = [p for p in paragraphs if p.strip()]
         if len(paragraphs) <= 3:
             raw_chunks = paragraphs
@@ -931,7 +951,7 @@ async def _process_question(
 
             from stream_handler import stream_reading_response
             full_answer, is_complete = await stream_reading_response(
-                placeholder, namespace, question, history, mode, build_dynamic_keyboard
+                placeholder, namespace, question, history, mode, build_combined_keyboard
             )
             
             session_manager.add_to_chat_history(user_id, "user", question)

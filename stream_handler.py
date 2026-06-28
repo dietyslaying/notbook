@@ -11,21 +11,36 @@ from streaming_formatter import format_stream_safe
 
 def _parse_dynamic_buttons_local(text: str):
     """Local duplicate to avoid circular import with bot.py"""
+    # 1. Parse dynamic buttons
     pattern = r'<BUTTONS>\s*(.+?)\s*</BUTTONS>'
     match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
-    if not match:
-        return text.strip(), []
-
-    body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
-    raw_buttons = match.group(1)
     
-    if ',' in raw_buttons:
-        buttons = [b.strip() for b in raw_buttons.split(',')]
-    else:
-        buttons = [b.strip() for b in raw_buttons.splitlines()]
-        
-    buttons = [b for b in buttons if b]
-    return body.strip(), buttons
+    body = text
+    buttons = []
+    if match:
+        body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
+        raw_buttons = match.group(1)
+        if ',' in raw_buttons:
+            buttons = [b.strip() for b in raw_buttons.split(',')]
+        else:
+            buttons = [b.strip() for b in raw_buttons.splitlines()]
+        buttons = [b for b in buttons if b]
+
+    # 2. Extract follow-up questions (leave them in the body, but grab them for buttons)
+    questions = []
+    fq_pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
+    fq_match = re.search(fq_pattern, body)
+    if fq_match:
+        # We don't remove it from the body, because the user wants to read them with spacing!
+        questions_block = fq_match.group(1)
+        for line in questions_block.split('\n'):
+            line = line.strip()
+            if line and re.match(r'^\d+\.', line):
+                q = re.sub(r'^\d+\.\s*', '', line).strip()
+                if q:
+                    questions.append(q)
+
+    return body.strip(), questions, buttons
 
 
 async def stream_reading_response(
@@ -96,8 +111,8 @@ async def stream_reading_response(
         final_chunk = raw_chunks[current_chunk_idx].strip()
         
         # Look for buttons in the final chunk
-        final_chunk, buttons = _parse_dynamic_buttons_local(final_chunk)
-        keyboard = build_keyboard_func(buttons, namespace, include_continue=not is_complete_final)
+        final_chunk, questions, buttons = _parse_dynamic_buttons_local(final_chunk)
+        keyboard = build_keyboard_func(questions, buttons, namespace, include_continue=not is_complete_final)
         
         if final_chunk:
             safe_html = format_stream_safe(final_chunk, is_final=True)
