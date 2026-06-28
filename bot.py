@@ -99,9 +99,9 @@ def format_for_telegram(text: str) -> str:
     text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
     # Inline code
     text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    # Bullet markers (force aesthetic blue dots if the AI uses standard markdown)
-    text = re.sub(r'^\* ', '🔵 ', text, flags=re.MULTILINE)
-    text = re.sub(r'^- ', '🔵 ', text, flags=re.MULTILINE)
+    # Bullet markers (force aesthetic blue dots AND double spacing)
+    text = re.sub(r'^\* ', '\n\n🔵 ', text, flags=re.MULTILINE)
+    text = re.sub(r'^- ', '\n\n🔵 ', text, flags=re.MULTILINE)
     # Clean stray lone asterisks (single * not part of ** pairs)
     text = re.sub(r'(?<!\*)\*(?!\*)', '', text)
     # Remove triple+ newlines
