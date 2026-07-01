@@ -27,6 +27,11 @@ class PullQuoteBlock(BaseModel):
     type: Literal["pull_quote"] = "pull_quote"
     text: str
 
+class ExpandableBlock(BaseModel):
+    type: Literal["expandable"] = "expandable"
+    title: str
+    content: str
+
 class ListItem(BaseModel):
     text: str
 
@@ -46,7 +51,7 @@ class MathBlock(BaseModel):
     expression: str
 
 class TelegramRichMessage(BaseModel):
-    blocks: List[Union[HeadingBlock, ParagraphBlock, PullQuoteBlock, ListBlock, TableBlock, MathBlock]]
+    blocks: List[Union[HeadingBlock, ParagraphBlock, PullQuoteBlock, ExpandableBlock, ListBlock, TableBlock, MathBlock]]
     follow_up_questions: List[str] = Field(
         description="3 questions to prompt the user to explore the topic deeper."
     )
@@ -81,18 +86,31 @@ def json_to_telegram_html(response_json: dict) -> str:
             parts.append(_rich_text_to_html(block.get("text", "")))
         elif t == "pull_quote":
             parts.append(f"<blockquote>{_rich_text_to_html(block.get('text', ''))}</blockquote>")
+        elif t == "expandable":
+            title = _rich_text_to_html(block.get('title', ''))
+            content = _rich_text_to_html(block.get('content', ''))
+            parts.append(f"<blockquote expandable><b>{title}</b>\n{content}</blockquote>")
         elif t == "list":
             for item in block.get("items", []):
                 text = item.get("text", "")
                 parts.append(f"• {_rich_text_to_html(text)}")
         elif t == "table":
-            parts.append("<code>[Table]</code>")
-            for row in block.get("rows", []):
+            table_html = "<table>"
+            for i, row in enumerate(block.get("rows", [])):
+                table_html += "<tr>"
                 cells = row.get("cells", [])
-                cell_texts = [_rich_text_to_html(c.get("text", "")) for c in cells]
-                parts.append(" | ".join(cell_texts))
+                for cell in cells:
+                    cell_text = _rich_text_to_html(cell.get("text", ""))
+                    # Make first row bold headers if desired, though standard Telegram table formatting handles it.
+                    if i == 0:
+                        table_html += f"<th>{cell_text}</th>"
+                    else:
+                        table_html += f"<td>{cell_text}</td>"
+                table_html += "</tr>"
+            table_html += "</table>"
+            parts.append(table_html)
         elif t == "math":
-            parts.append(f"<code>{html.escape(block.get('expression', ''))}</code>")
+            parts.append(f"<tg-math-block>{html.escape(block.get('expression', ''))}</tg-math-block>")
             
     return "\n\n".join(p for p in parts if p.strip())
 
