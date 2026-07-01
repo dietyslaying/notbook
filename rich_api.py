@@ -420,7 +420,15 @@ async def send_chunked_rich_message(
         is_last = (i == len(chunks) - 1)
         
         try:
-            native_rich = InputRichMessage.model_validate({"blocks": chunk})
+            # Convert blocks to Telegram-compatible HTML
+            html_content = _blocks_to_html(chunk)
+            
+            # Telegram might reject completely empty strings or single spaces
+            if not html_content or not html_content.strip() or html_content.strip() == "\u200b":
+                continue
+
+            # InputRichMessage in aiogram 3.29.0 expects html or markdown strings, not block ASTs
+            native_rich = InputRichMessage(html=html_content)
             
             await bot.send_rich_message(
                 chat_id=chat_id,
@@ -430,21 +438,85 @@ async def send_chunked_rich_message(
             )
         except Exception as e:
             logger.warning(f"Rich message chunk {i} failed ({e}), falling back to plain text")
-            # Fallback: extract plain text from blocks and send as regular message
-            fallback_text = _blocks_to_fallback_text(chunk)
-            if fallback_text:
-                try:
+            # Fallback: send as regular HTML message
+            try:
+                html_fallback = _blocks_to_html(chunk)
+                if html_fallback and html_fallback.strip():
                     await bot.send_message(
                         chat_id=chat_id,
                         message_thread_id=message_thread_id,
-                        text=fallback_text[:4000],
+                        text=html_fallback[:4000],
+                        parse_mode="HTML",
                         reply_markup=keyboard if is_last else None
                     )
-                except Exception as e2:
-                    logger.error(f"Fallback message also failed: {e2}")
+            except Exception as e2:
+                logger.error(f"Fallback message also failed: {e2}")
             
         if not is_last:
             await asyncio.sleep(0.8)  # Natural delay between message bubbles
+
+
+def _rich_text_to_html(text_obj) -> str:
+    import html
+    if isinstance(text_obj, str):
+        return html.escape(text_obj).replace("\u200b", "")
+    if isinstance(text_obj, list):
+        return "".join(_rich_text_to_html(t) for t in text_obj)
+    
+    t = text_obj.get("type", "")
+    content = _rich_text_to_html(text_obj.get("text", ""))
+    
+    if t == "plain": return content
+    if t == "bold": return f"<b>{content}</b>"
+    if t == "italic": return f"<i>{content}</i>"
+    if t == "strikethrough": return f"<s>{content}</s>"
+    if t == "code": return f"<code>{content}</code>"
+    if t == "text_url": return f"<a href=\"{html.escape(text_obj.get('url', ''))}\">{content}</a>"
+    if t == "mathematical_expression": return f"<code>{content}</code>"  # Safe fallback for math
+    
+    return content
+
+
+def _blocks_to_html(blocks: list[dict]) -> str:
+    parts = []
+    for block in blocks:
+        t = block.get("type", "")
+        if t == "paragraph":
+            parts.append(_rich_text_to_html(block.get("text", {})))
+        elif t == "section_heading":
+            parts.append(f"<b>{_rich_text_to_html(block.get('text', {}))}</b>")
+        elif t == "footer":
+            parts.append(f"<i>{_rich_text_to_html(block.get('text', {}))}</i>")
+        elif t == "preformatted":
+            content = _rich_text_to_html(block.get("text", {}))
+            lang = block.get("language", "")
+            if lang:
+                parts.append(f"<pre><code class=\"language-{lang}\">{content}</code></pre>")
+            else:
+                parts.append(f"<pre>{content}</pre>")
+        elif t in ("block_quotation", "pull_quotation"):
+            inner = _blocks_to_html(block.get("blocks", []))
+            parts.append(f"<blockquote>{inner}</blockquote>")
+        elif t == "details":
+            title = _rich_text_to_html(block.get("title", {}))
+            inner = _blocks_to_html(block.get("blocks", []))
+            parts.append(f"<blockquote expandable><b>{title}</b>\n{inner}</blockquote>")
+        elif t == "list":
+            for item in block.get("items", []):
+                label = item.get("label", "•")
+                inner = _blocks_to_html(item.get("blocks", []))
+                parts.append(f"{label} {inner}")
+        elif t == "table":
+            # Best-effort text rendering for tables
+            parts.append("<code>[Table View]</code>")
+            for cell in block.get("cells", []):
+                content = _blocks_to_html(cell.get("blocks", []))
+                parts.append(f"• {content}")
+        elif t == "mathematical_expression":
+            expr = block.get("expression", "")
+            parts.append(f"<pre>{expr}</pre>")
+            
+    return "\n\n".join(p for p in parts if p.strip())
 
 
 def _blocks_to_fallback_text(blocks: list[dict]) -> str:
