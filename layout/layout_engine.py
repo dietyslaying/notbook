@@ -86,6 +86,78 @@ class LayoutEngine:
             elif b_type == "explanation":
                 components.append(HeadingComponent(text=block.get("topic", "Explanation"), icon="📝", source_chunk_ids=source_ids))
                 components.append(ParagraphComponent(text=block.get("content", ""), source_chunk_ids=source_ids))
+
+            elif b_type == "drug_info":
+                name = block.get("drug_name", "Drug")
+                components.append(HeadingComponent(text=f"{name} (Drug Info)", icon=icon, source_chunk_ids=source_ids))
+                
+                if block.get("mechanism"):
+                    components.append(ParagraphComponent(text=f"Mechanism: {block.get('mechanism')}", source_chunk_ids=source_ids))
+                
+                if block.get("indications"):
+                    components.append(ParagraphComponent(text="Indications:", source_chunk_ids=source_ids))
+                    components.append(ChecklistComponent(items=block.get("indications"), source_chunk_ids=source_ids))
+                
+                if block.get("contraindications"):
+                    components.append(ParagraphComponent(text="Contraindications:", source_chunk_ids=source_ids))
+                    components.append(ChecklistComponent(items=block.get("contraindications"), source_chunk_ids=source_ids))
+                    
+                if block.get("side_effects"):
+                    components.append(ParagraphComponent(text="Side Effects:", source_chunk_ids=source_ids))
+                    components.append(ChecklistComponent(items=block.get("side_effects"), source_chunk_ids=source_ids))
+
+            elif b_type == "timeline":
+                components.append(HeadingComponent(text="Timeline", icon="⏱", source_chunk_ids=source_ids))
+                events = block.get("events", [])
+                rows = [[e.get("time", ""), e.get("event", "")] for e in events]
+                if rows:
+                    components.append(TableComponent(headers=["Time", "Event"], rows=rows, source_chunk_ids=source_ids))
+
+            elif b_type == "formula":
+                components.append(HeadingComponent(text=block.get("name", "Formula"), icon="🧮", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=f"`{block.get('expression', '')}`", source_chunk_ids=source_ids))
+                variables = block.get("variables", {})
+                if variables:
+                    var_list = [f"{k}: {v}" for k, v in variables.items()]
+                    components.append(ChecklistComponent(items=var_list, source_chunk_ids=source_ids))
+
+            elif b_type == "guideline":
+                org = block.get("organization", "Guideline")
+                components.append(HeadingComponent(text=f"{org} Guidelines", icon="📜", source_chunk_ids=source_ids))
+                if block.get("recommendations"):
+                    components.append(ChecklistComponent(items=block.get("recommendations"), source_chunk_ids=source_ids))
+
+            elif b_type == "clinical_case":
+                components.append(HeadingComponent(text="Clinical Case", icon="🏥", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=block.get("patient_presentation", ""), source_chunk_ids=source_ids))
+                if block.get("key_findings"):
+                    components.append(ParagraphComponent(text="Key Findings:", source_chunk_ids=source_ids))
+                    components.append(ChecklistComponent(items=block.get("key_findings"), source_chunk_ids=source_ids))
+                if block.get("diagnosis"):
+                    components.append(ParagraphComponent(text=f"Diagnosis: {block.get('diagnosis')}", source_chunk_ids=source_ids))
+
+            elif b_type == "concept":
+                components.append(HeadingComponent(text=block.get("name", "Concept"), icon="💡", source_chunk_ids=source_ids))
+                if block.get("details"):
+                    components.append(ChecklistComponent(items=block.get("details"), source_chunk_ids=source_ids))
+
+            elif b_type == "question":
+                components.append(HeadingComponent(text="Practice Question", icon="❓", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=block.get("question", ""), source_chunk_ids=source_ids))
+                if block.get("options"):
+                    components.append(ChecklistComponent(items=block.get("options"), source_chunk_ids=source_ids))
+                # Answer and explanation might be hidden in a real UI, but shown as paragraph for now
+                components.append(ParagraphComponent(text=f"Answer: {block.get('answer', '')}", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=f"Explanation: {block.get('explanation', '')}", source_chunk_ids=source_ids))
+
+            elif b_type == "reference":
+                components.append(HeadingComponent(text="Reference", icon="📚", source_chunk_ids=source_ids))
+                source_txt = block.get("source", "")
+                if block.get("page"):
+                    source_txt += f" (Page {block.get('page')})"
+                components.append(ParagraphComponent(text=source_txt, source_chunk_ids=source_ids))
+                if block.get("excerpt"):
+                    components.append(ParagraphComponent(text=f"\"{block.get('excerpt')}\"", source_chunk_ids=source_ids))
                 
             # Generic fallback divider for separation
             components.append(DividerComponent())

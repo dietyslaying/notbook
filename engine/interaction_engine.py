@@ -27,9 +27,18 @@ class InteractionEngine:
             ButtonComponent(label="🔖 Bookmark", action_data="action_bookmark")
         ]
         
-        # If it's a disease, maybe offer comparison
-        if knowledge_tree.get("topic_category") == "disease":
+        # Dynamic buttons based on blocks present
+        blocks = knowledge_tree.get("blocks", [])
+        types = [b.get("type") for b in blocks if isinstance(b, dict)]
+        
+        if "disease_symptoms" in types or knowledge_tree.get("topic_category") == "disease":
             buttons.append(ButtonComponent(label="⚖️ Compare...", action_data="action_compare"))
+            
+        if "clinical_case" in types:
+            buttons.append(ButtonComponent(label="🩺 Solve Case", action_data="action_solve_case"))
+            
+        if "drug_info" in types or knowledge_tree.get("topic_category") == "drug":
+            buttons.append(ButtonComponent(label="⚠️ Interactions", action_data="action_drug_interactions"))
             
         component_tree.append(ButtonBarComponent(buttons=buttons))
         return component_tree

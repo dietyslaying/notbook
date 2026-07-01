@@ -862,57 +862,8 @@ async def _process_question(
                 
             # Progressive Rendering Pipeline
             if mode not in ("quiz", "flashcards"):
-                now = time.time()
-                # Semantic boundary simulation (fallback to 1.5s until true semantic buffer is complete)
-                if now - last_edit_time > 1.5:
-                    try:
-                        # 1. Parse raw NIR
-                        from partial_json_parser import parse_partial_json
-                        partial_ast = parse_partial_json(full_answer)
-                        
-                        # 2. Knowledge Generation & Validation
-                        valid_tree = validator.validate(partial_ast)
-                        
-                        # 3. Enrichment
-                        enriched_tree = enricher.enrich(valid_tree)
-                        
-                        # 4. Content Intelligence
-                        template_type = intelligence.determine_template(enriched_tree)
-                        
-                        # 5. Layout Engine
-                        component_tree = layout_engine.process(enriched_tree)
-                        
-                        # 6. Interaction & Recommendation
-                        component_tree = interaction.append_interactions(component_tree, enriched_tree)
-                        component_tree = recommendation.append_recommendations(component_tree, enriched_tree)
-                        
-                        # 7. Incremental Render (Stubbed direct map for now)
-                        # We use a quick flush mechanism for the partial tree
-                        rendered_html = ""
-                        async for html_chunk in renderer.render_incremental(
-                            asyncio.Queue() # Mock iterator
-                        ):
-                            pass
-                        
-                        # Temporary fallback for partial rendering while stream pipeline is completed
-                        from renderers.backends.telegram_backend import TelegramBackend
-                        temp_html = ""
-                        for comp in component_tree:
-                            c_type = getattr(comp, "type", "")
-                            if c_type == "heading":
-                                temp_html += f"<b>{getattr(comp, 'icon', '')} {getattr(comp, 'text', '')}</b>\n\n"
-                            elif c_type == "paragraph":
-                                temp_html += f"{getattr(comp, 'text', '')}\n\n"
-                            elif c_type == "checklist":
-                                temp_html += "".join([f"• {item}\n" for item in getattr(comp, "items", [])]) + "\n"
-                            elif c_type == "divider":
-                                temp_html += "──────────\n\n"
-                        rendered_html = temp_html
-                        
-                    except Exception as parse_e:
-                        logger.error(f"Pipeline error during stream: {parse_e}")
-                        rendered_html = last_rendered_html
-                    
+                # Use the Semantic Boundary Buffer pipeline
+                async for rendered_html in stream_pipeline.process_stream([(chunk_text, chunk_complete)]):
                     if rendered_html and rendered_html != last_rendered_html:
                         if not stop_event.is_set():
                             stop_event.set()
@@ -923,7 +874,6 @@ async def _process_question(
                                 text=rendered_html[:4000] + "\n\n<i>✍️ Rendering...</i>",
                                 parse_mode="HTML"
                             )
-                            last_edit_time = now
                             last_rendered_html = rendered_html
                         except Exception:
                             pass

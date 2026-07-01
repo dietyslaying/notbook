@@ -37,6 +37,18 @@ class TelegramBackend(IncrementalRenderer):
                     current_html_buffer += f"• {self._safe_escape(item)}\n"
                 current_html_buffer += "\n"
                 
+            elif c_type == "table":
+                headers = getattr(component, "headers", [])
+                rows = getattr(component, "rows", [])
+                if headers:
+                    current_html_buffer += f"<b>{self._safe_escape(headers[0])}</b>\n"
+                for row in rows:
+                    if len(row) == 3:
+                        current_html_buffer += f"• {self._safe_escape(row[0])}: {self._safe_escape(row[1])} vs {self._safe_escape(row[2])}\n"
+                    elif len(row) == 2:
+                        current_html_buffer += f"• {self._safe_escape(row[0])}: {self._safe_escape(row[1])}\n"
+                current_html_buffer += "\n"
+                
             elif c_type == "divider":
                 current_html_buffer += "──────────\n\n"
                 
