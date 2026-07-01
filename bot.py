@@ -75,41 +75,8 @@ THINKING_FRAMES = [
 ]
 
 # ---------------------------------------------------------------------------
-# Helpers — formatting
+# Helpers — formatting (legacy removed — all formatting via rich_api.py)
 # ---------------------------------------------------------------------------
-
-
-def format_for_telegram(text: str) -> str:
-    """Convert Gemini Markdown to Telegram-safe HTML.
-
-    Order matters: escape HTML first, then layer Markdown conversions.
-    """
-    text = html.escape(text)
-    # **bold** → <b>bold</b> (with DOTALL to support multi-line bold)
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text, flags=re.DOTALL)
-    # ## Headers → <b>Headers</b>
-    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-    
-    # Fake unicode boxes (Telegram pre-formatting)
-    text = re.sub(r'(╭─+╮\n.*?\n╰─+╯)', r'<pre>\1</pre>', text, flags=re.DOTALL)
-
-    # Expandable blockquotes (>+)
-    text = re.sub(r'^&gt;\+\s*(.+)$', r'<blockquote expandable>\1</blockquote>', text, flags=re.MULTILINE)
-    # Standard blockquotes
-    text = re.sub(r'^&gt;\s*(.+)$', r'<blockquote>\1</blockquote>', text, flags=re.MULTILINE)
-    
-    # Fenced code blocks
-    text = re.sub(r'```(?:\w+)?\n(.*?)```', r'<pre>\1</pre>', text, flags=re.DOTALL)
-    # Inline code
-    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    # Bullet markers (force aesthetic blue dots AND double spacing)
-    text = re.sub(r'^\* ', '\n\n🔵 ', text, flags=re.MULTILINE)
-    text = re.sub(r'^- ', '\n\n🔵 ', text, flags=re.MULTILINE)
-    # Clean stray lone asterisks (single * not part of ** pairs)
-    text = re.sub(r'(?<!\*)\*(?!\*)', '', text)
-    # Remove triple+ newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text
 
 
 # ---------------------------------------------------------------------------
@@ -350,71 +317,25 @@ def continue_keyboard(namespace: str) -> InlineKeyboardMarkup:
 
 
 # ---------------------------------------------------------------------------
-# Unified response sender
+# Unified response sender (Rich Message)
 # ---------------------------------------------------------------------------
 
 
-async def send_formatted_response(
+async def send_rich_response(
     message: Message, text: str, user_id: int, namespace: str, is_complete: bool = True
 ) -> None:
-    """Process followups, format HTML, and send the final static response in ADHD-friendly chunks."""
+    """Parse AI output, extract buttons/questions, send as native Rich Messages."""
 
-    # ADHD-friendly chunking: We use '---' as a delimiter to separate major message bubbles.
-    # The AI is instructed to use '---' to break up its response into logical sections.
-    raw_chunks = re.split(r'\n+\s*---\s*\n+', text)
-    
-    # We still need to parse the final chunk for buttons in fallback mode
-    final_chunk = raw_chunks[-1]
-    final_chunk, questions, buttons = parse_dynamic_buttons(final_chunk)
-    raw_chunks[-1] = final_chunk
-        
+    # Extract buttons and questions from the raw AI output
+    body, questions, buttons = parse_dynamic_buttons(text)
     keyboard = build_combined_keyboard(questions, buttons, namespace, include_continue=not is_complete)
     
-    # If the AI failed to use '---', fallback to automatic chunking to guarantee message bubbles!
-    if len(raw_chunks) == 1:
-        paragraphs = raw_chunks[0].split('\n\n')
-        paragraphs = [p for p in paragraphs if p.strip()]
-        if len(paragraphs) <= 3:
-            raw_chunks = paragraphs
-        else:
-            chunk_size = math.ceil(len(paragraphs) / 3)
-            raw_chunks = []
-            for i in range(0, len(paragraphs), chunk_size):
-                raw_chunks.append("\n\n".join(paragraphs[i:i+chunk_size]))
-    
-    chunks = []
-    for rc in raw_chunks:
-        if rc.strip():
-            # Format each chunk to HTML individually
-            html_chunk = format_for_telegram(rc.strip())
-            chunks.append(html_chunk)
-            
-    if not chunks:
-        chunks = ["(No content generated)"]
+    # Store follow-up questions so the number shortcut ("1", "2", "3") works
+    if questions:
+        session_manager.set_followups(user_id, questions)
 
-    # Send the chunks as separate message bubbles with a delay
-    for i, chunk in enumerate(chunks):
-        await message.answer(
-            text=chunk,
-            parse_mode=ParseMode.HTML
-        )
-        if i < len(chunks) - 1:
-            await asyncio.sleep(1.5) # Natural delay between reading bubbles
-
-    # Send follow-ups or continue button as a distinct, separate message bubble
-    if buttons or not is_complete:
-        followup_text = ""
-        if buttons:
-            followup_text = "<b>📌 Choose an action or topic:</b>"
-        elif not is_complete:
-            followup_text = "<i>The response is very long. Tap below to continue reading.</i>"
-
-        await asyncio.sleep(1.0) # Delay before followups
-        await message.answer(
-            text=followup_text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard
-        )
+    # Send as native Rich Message with intelligent chunking
+    await send_chunked_rich_message(bot, message.chat.id, None, body, keyboard)
 
 
 # ---------------------------------------------------------------------------
@@ -470,20 +391,16 @@ async def handle_flashcard_response(
     card = parse_flashcard(full_answer)
     if not card:
         # Fallback to regular formatted text
-        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+        await send_rich_response(message, full_answer, user_id, namespace, is_complete)
         return
 
     session_manager.set_flashcard_back(user_id, card['back'])
 
-    front_html = format_for_telegram(card['front'])
+    front_md = f"## 🗂️ Flashcard\n\n{card['front']}"
     flip_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Flip to see answer", callback_data="flip")]
     ])
-    await message.answer(
-        f"<b>🗂️ Flashcard</b>\n\n{front_html}",
-        parse_mode=ParseMode.HTML,
-        reply_markup=flip_kb,
-    )
+    await send_chunked_rich_message(bot, message.chat.id, None, front_md, flip_kb)
 
 
 # ---------------------------------------------------------------------------
@@ -722,12 +639,10 @@ async def callback_flip(callback: CallbackQuery) -> None:
         pass
     await callback.answer()
 
-    back_html = format_for_telegram(back_text)
-    await callback.message.answer(
-        f"<b>🔄 Answer</b>\n\n{back_html}",
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Next Flashcard", callback_data="next_flashcard")]])
-    )
+    # Send flashcard back as a Rich Message
+    back_md = f"## 🔄 Answer\n\n{back_text}"
+    next_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Next Flashcard", callback_data="next_flashcard")]])
+    await send_chunked_rich_message(bot, callback.message.chat.id, None, back_md, next_kb)
 
 
 # ---------------------------------------------------------------------------
@@ -822,7 +737,7 @@ async def callback_continue(callback: CallbackQuery) -> None:
         except Exception:
             pass
 
-        await send_formatted_response(
+        await send_rich_response(
             callback.message, full_answer, user_id, namespace, is_complete,
         )
 
@@ -893,7 +808,7 @@ async def _process_question(
     namespace: str,
     question: str,
 ) -> None:
-    """Show thinking animation, collect full response silently, dispatch to mode handler."""
+    """Show thinking animation, collect full response, dispatch to mode handler."""
 
     placeholder = await message.answer(THINKING_FRAMES[0])
     stop_event = asyncio.Event()
@@ -904,58 +819,36 @@ async def _process_question(
         history = session_manager.get_chat_history(user_id)
         mode = session_manager.get_user_mode(user_id)
 
-        if mode in ("quiz", "flashcards"):
-            # Quiz & Flashcards require parsing structured data at the end, so we buffer silently
-            full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
-            
-            # Truncate cleanly if cut off
-            if not is_complete:
-                match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
-                if match:
-                    full_answer = match.group(1).strip() + "..."
-                else:
-                    full_answer = full_answer.rsplit(' ', 1)[0] + "..."
-            
-            session_manager.add_to_chat_history(user_id, "user", question)
-            session_manager.add_to_chat_history(user_id, "model", full_answer)
+        # ALL modes now buffer the full response before sending
+        full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
+        
+        # Truncate cleanly if cut off
+        if not is_complete:
+            match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
+            if match:
+                full_answer = match.group(1).strip() + "..."
+            else:
+                full_answer = full_answer.rsplit(' ', 1)[0] + "..."
+        
+        session_manager.add_to_chat_history(user_id, "user", question)
+        session_manager.add_to_chat_history(user_id, "model", full_answer)
 
-            # Stop animation & delete placeholder
-            stop_event.set()
-            thinking_task.cancel()
-            try:
-                await placeholder.delete()
-            except Exception:
-                pass
+        # Stop animation & delete placeholder
+        stop_event.set()
+        thinking_task.cancel()
+        try:
+            await placeholder.delete()
+        except Exception:
+            pass
 
-            # Dispatch
-            if mode == "quiz":
-                await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
-            elif mode == "flashcards":
-                await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
-
+        # Dispatch based on mode
+        if mode == "quiz":
+            await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
+        elif mode == "flashcards":
+            await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
         else:
-            # Default Reading Mode: Live Streaming!
-            stop_event.set()
-            thinking_task.cancel()
-            
-            # Ensure the placeholder shows exactly the desired sequence from the spec
-            try:
-                await placeholder.edit_text("🧠 Thinking...")
-                await asyncio.sleep(0.3)
-                await placeholder.edit_text("🔍 Searching knowledge base...")
-                await asyncio.sleep(0.5)
-                await placeholder.edit_text("📚 Reading retrieved documents...")
-                await asyncio.sleep(0.5)
-            except Exception:
-                pass
-
-            from stream_handler import stream_reading_response
-            full_answer, is_complete = await stream_reading_response(
-                placeholder, namespace, question, history, mode, build_combined_keyboard
-            )
-            
-            session_manager.add_to_chat_history(user_id, "user", question)
-            session_manager.add_to_chat_history(user_id, "model", full_answer)
+            # All reading modes (chat, notes, qna, spaced_review) → Rich Messages
+            await send_rich_response(message, full_answer, user_id, namespace, is_complete)
 
     except Exception as e:
         stop_event.set()
