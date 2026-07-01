@@ -811,9 +811,15 @@ async def _process_question(
     """Show thinking animation, collect full response, dispatch to mode handler."""
 
     import time
-    from partial_json_parser import parse_partial_json
-    from document_composer import DocumentComposer
-    from renderers import TelegramRenderer
+    from knowledge_validator import KnowledgeValidator
+    from enrichment.decorators import EnrichmentPipeline
+    from content_intelligence import ContentIntelligence
+    from layout.layout_engine import LayoutEngine
+    from engine.interaction_engine import InteractionEngine
+    from engine.recommendation_engine import RecommendationEngine
+    from renderers.core import StudyContext
+    from renderers.backends.telegram_backend import TelegramBackend
+    from streaming.pipeline import StreamingPipeline
     import json
     import html
 
@@ -822,8 +828,17 @@ async def _process_question(
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
     thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
 
-    composer = DocumentComposer()
-    renderer = TelegramRenderer()
+    validator = KnowledgeValidator()
+    enricher = EnrichmentPipeline()
+    intelligence = ContentIntelligence()
+    layout_engine = LayoutEngine()
+    interaction = InteractionEngine()
+    recommendation = RecommendationEngine()
+    
+    # Render Context initialization
+    study_context = StudyContext(mode=session_manager.get_user_mode(user_id))
+    renderer = TelegramBackend(study_context)
+    stream_pipeline = StreamingPipeline(renderer)
 
     try:
         history = session_manager.get_chat_history(user_id)
@@ -845,22 +860,60 @@ async def _process_question(
             if chunk_complete is not None:
                 is_complete_final = chunk_complete
                 
-            # Progressive Rendering (only for non-quiz/flashcard modes)
+            # Progressive Rendering Pipeline
             if mode not in ("quiz", "flashcards"):
                 now = time.time()
-                # Edit at most once per 1.5 seconds to avoid rate limits
+                # Semantic boundary simulation (fallback to 1.5s until true semantic buffer is complete)
                 if now - last_edit_time > 1.5:
-                    # Parse partial AST
                     try:
+                        # 1. Parse raw NIR
+                        from partial_json_parser import parse_partial_json
                         partial_ast = parse_partial_json(full_answer)
-                        composed_ast = composer.compose(partial_ast)
-                        rendered_html = renderer.render(composed_ast)
+                        
+                        # 2. Knowledge Generation & Validation
+                        valid_tree = validator.validate(partial_ast)
+                        
+                        # 3. Enrichment
+                        enriched_tree = enricher.enrich(valid_tree)
+                        
+                        # 4. Content Intelligence
+                        template_type = intelligence.determine_template(enriched_tree)
+                        
+                        # 5. Layout Engine
+                        component_tree = layout_engine.process(enriched_tree)
+                        
+                        # 6. Interaction & Recommendation
+                        component_tree = interaction.append_interactions(component_tree, enriched_tree)
+                        component_tree = recommendation.append_recommendations(component_tree, enriched_tree)
+                        
+                        # 7. Incremental Render (Stubbed direct map for now)
+                        # We use a quick flush mechanism for the partial tree
+                        rendered_html = ""
+                        async for html_chunk in renderer.render_incremental(
+                            asyncio.Queue() # Mock iterator
+                        ):
+                            pass
+                        
+                        # Temporary fallback for partial rendering while stream pipeline is completed
+                        from renderers.backends.telegram_backend import TelegramBackend
+                        temp_html = ""
+                        for comp in component_tree:
+                            c_type = getattr(comp, "type", "")
+                            if c_type == "heading":
+                                temp_html += f"<b>{getattr(comp, 'icon', '')} {getattr(comp, 'text', '')}</b>\n\n"
+                            elif c_type == "paragraph":
+                                temp_html += f"{getattr(comp, 'text', '')}\n\n"
+                            elif c_type == "checklist":
+                                temp_html += "".join([f"• {item}\n" for item in getattr(comp, "items", [])]) + "\n"
+                            elif c_type == "divider":
+                                temp_html += "──────────\n\n"
+                        rendered_html = temp_html
+                        
                     except Exception as parse_e:
-                        logger.error(f"Render error during stream: {parse_e}")
+                        logger.error(f"Pipeline error during stream: {parse_e}")
                         rendered_html = last_rendered_html
                     
                     if rendered_html and rendered_html != last_rendered_html:
-                        # Stop animation once we start rendering
                         if not stop_event.is_set():
                             stop_event.set()
                             thinking_task.cancel()
@@ -873,7 +926,7 @@ async def _process_question(
                             last_edit_time = now
                             last_rendered_html = rendered_html
                         except Exception:
-                            pass # Ignore FloodWait or identical text errors
+                            pass
 
         # Final render
         if not stop_event.is_set():
@@ -895,12 +948,41 @@ async def _process_question(
             try:
                 final_ast = json.loads(full_answer)
             except Exception:
+                from partial_json_parser import parse_partial_json
                 final_ast = parse_partial_json(full_answer) # fallback
                 
-            composed_ast = composer.compose(final_ast)
-            final_html = renderer.render(composed_ast)
+            # Full final pipeline pass
+            valid_tree = validator.validate(final_ast)
+            enriched_tree = enricher.enrich(valid_tree)
+            template_type = intelligence.determine_template(enriched_tree)
+            component_tree = layout_engine.process(enriched_tree)
+            component_tree = interaction.append_interactions(component_tree, enriched_tree)
+            component_tree = recommendation.append_recommendations(component_tree, enriched_tree)
             
-            buttons = composed_ast.get("recommended_actions", [])
+            # Temporary fallback for final render
+            final_html = ""
+            for comp in component_tree:
+                c_type = getattr(comp, "type", "")
+                if c_type == "heading":
+                    final_html += f"<b>{getattr(comp, 'icon', '')} {getattr(comp, 'text', '')}</b>\n\n"
+                elif c_type == "paragraph":
+                    final_html += f"{getattr(comp, 'text', '')}\n\n"
+                elif c_type == "checklist":
+                    final_html += "".join([f"• {item}\n" for item in getattr(comp, "items", [])]) + "\n"
+                elif c_type == "table":
+                    final_html += f"<b>{comp.headers[0] if comp.headers else 'Table'}</b>\n"
+                    for row in comp.rows:
+                        final_html += f"• {row[0]}: {row[1]} vs {row[2]}\n"
+                    final_html += "\n"
+                elif c_type == "divider":
+                    final_html += "──────────\n\n"
+            
+            # Interaction buttons (extract from ButtonBarComponent)
+            buttons = []
+            for comp in component_tree:
+                if getattr(comp, "type", "") == "button_bar":
+                    buttons = [b.label for b in getattr(comp, "buttons", [])]
+            
             keyboard = build_combined_keyboard([], buttons, namespace, include_continue=not is_complete_final)
             
             try:
