@@ -338,6 +338,58 @@ async def send_rich_response(
         )
 
 
+async def send_rich_response(
+    message: Message,
+    full_answer: str,
+    user_id: int,
+    namespace: str,
+    is_complete: bool,
+) -> None:
+    import json
+    from ndm_validator import NDMValidator
+    from enrichment.decorators import EnrichmentPipeline
+    from layout.presentation_engine import PresentationEngine
+    from layout.template_registry import TemplateRegistry
+    from layout.page_builder import PageBuilder
+    from engine.interaction_engine import InteractionEngine
+    from engine.render_planner import RenderPlanner
+    from renderers.backends.telegram_rich_backend import TelegramRichBackend
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    try:
+        final_ast = json.loads(full_answer)
+    except Exception:
+        from partial_json_parser import parse_partial_json
+        final_ast = parse_partial_json(full_answer)
+
+    validator = NDMValidator()
+    enricher = EnrichmentPipeline()
+    presentation_engine = PresentationEngine()
+    template_registry = TemplateRegistry(presentation_engine)
+    page_builder = PageBuilder(template_registry)
+    interaction = InteractionEngine()
+    render_planner = RenderPlanner(interaction)
+    renderer = TelegramRichBackend()
+
+    valid_tree = validator.validate(final_ast)
+    enriched_tree = enricher.enrich(valid_tree)
+    doc = page_builder.build_page(enriched_tree)
+
+    streaming_plan, interaction_tree = render_planner.plan(doc)
+    final_html = renderer.render_streaming_plan(streaming_plan)
+    keyboard_markup = renderer.build_inline_keyboard(interaction_tree)
+
+    markup = None
+    if keyboard_markup:
+        markup = InlineKeyboardMarkup(inline_keyboard=[])
+        for row in keyboard_markup.get("inline_keyboard", []):
+            markup.inline_keyboard.append([
+                InlineKeyboardButton(text=btn["text"], callback_data=btn["callback_data"])
+                for btn in row
+            ])
+
+    await message.answer(final_html[:4000], parse_mode="HTML", reply_markup=markup)
+
 # ---------------------------------------------------------------------------
 # Quiz response handler
 # ---------------------------------------------------------------------------
@@ -354,7 +406,7 @@ async def handle_quiz_response(
     quiz_data = parse_quiz(full_answer)
     if not quiz_data:
         # Fallback to regular formatted text
-        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+        await send_rich_response(message, full_answer, user_id, namespace, is_complete)
         return
 
     explanation = quiz_data['explanation']
@@ -372,7 +424,7 @@ async def handle_quiz_response(
         )
     except Exception as e:
         logger.warning(f"Quiz poll failed, falling back to text: {e}")
-        await send_formatted_response(message, full_answer, user_id, namespace, is_complete)
+        await send_rich_response(message, full_answer, user_id, namespace, is_complete)
 
 
 # ---------------------------------------------------------------------------
@@ -840,7 +892,6 @@ async def _process_question(
     
     # Render Context initialization
     renderer = TelegramRichBackend()
-    # stream_pipeline = StreamingPipeline(renderer) # Temporarily disabled for complete rewrite
 
     try:
         history = session_manager.get_chat_history(user_id)
@@ -854,34 +905,13 @@ async def _process_question(
         
         stream = gemini_service.query_rag_stream(namespace, question, history, mode)
         
-        if mode not in ("quiz", "flashcards"):
-            # Use the Semantic Boundary Buffer pipeline
-            async for rendered_html, full_buffer, chunk_complete in stream_pipeline.process_stream(stream):
-                full_answer = full_buffer
-                if chunk_complete is not None:
-                    is_complete_final = chunk_complete
-                
-                if rendered_html and rendered_html != last_rendered_html:
-                    if not stop_event.is_set():
-                        stop_event.set()
-                        thinking_task.cancel()
-                    
-                    try:
-                        await placeholder.edit_text(
-                            text=rendered_html[:4000] + "\n\n<i>✍️ Rendering...</i>",
-                            parse_mode="HTML"
-                        )
-                        last_rendered_html = rendered_html
-                    except Exception:
-                        pass
-        else:
-            # Simple text accumulation for quiz/flashcards
-            async for chunk_text, chunk_complete in stream:
-                if chunk_text is None:
-                    continue
-                full_answer += str(chunk_text)
-                if chunk_complete is not None:
-                    is_complete_final = chunk_complete
+        # Simple text accumulation (Streaming pipeline disabled temporarily for rewrite)
+        async for chunk_text, chunk_complete in stream:
+            if chunk_text is None:
+                continue
+            full_answer += str(chunk_text)
+            if chunk_complete is not None:
+                is_complete_final = chunk_complete
 
         # Final render
         if not stop_event.is_set():
