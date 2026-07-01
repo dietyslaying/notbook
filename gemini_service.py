@@ -126,13 +126,21 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
             )
         )
 
-        gemini_config = types.GenerateContentConfig(
-            system_instruction=system_msg,
-            temperature=config['llm']['temperature'],
-            top_p=config['llm']['top_p'],
-            top_k=config['llm']['top_k'],
-            max_output_tokens=config['llm']['max_output_tokens']
-        )
+        from rich_api import TelegramRichMessage
+        
+        config_kwargs = {
+            "system_instruction": system_msg,
+            "temperature": config['llm']['temperature'],
+            "top_p": config['llm']['top_p'],
+            "top_k": config['llm']['top_k'],
+            "max_output_tokens": config['llm']['max_output_tokens'],
+        }
+        
+        if mode not in ("quiz", "flashcards"):
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = TelegramRichMessage
+            
+        gemini_config = types.GenerateContentConfig(**config_kwargs)
 
         global current_client_idx
         max_gemini_retries = len(clients)

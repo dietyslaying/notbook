@@ -25,7 +25,6 @@ from aiohttp import web
 import gemini_service
 import session_manager
 from middlewares import RateLimitMiddleware, ContentFilterMiddleware
-from rich_api import send_chunked_rich_message
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -101,37 +100,7 @@ def get_friendly_error(error_msg: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def parse_dynamic_buttons(text: str) -> tuple[str, list[str], list[str]]:
-    """Extract <BUTTONS> and related questions from the AI's response."""
-    # 1. Parse dynamic buttons
-    pattern = r'<BUTTONS>\s*(.+?)\s*</BUTTONS>'
-    match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
-    
-    body = text
-    buttons = []
-    if match:
-        body = text[:match.start()].strip() + "\n\n" + text[match.end():].strip()
-        raw_buttons = match.group(1)
-        if ',' in raw_buttons:
-            buttons = [b.strip() for b in raw_buttons.split(',')]
-        else:
-            buttons = [b.strip() for b in raw_buttons.splitlines()]
-        buttons = [b for b in buttons if b]
 
-    # 2. Extract follow-up questions
-    questions = []
-    fq_pattern = r'📌\s*[Rr]elated questions:\s*\n((?:\s*\d+\.\s*.+\n?)+)'
-    fq_match = re.search(fq_pattern, body)
-    if fq_match:
-        questions_block = fq_match.group(1)
-        for line in questions_block.split('\n'):
-            line = line.strip()
-            if line and re.match(r'^\d+\.', line):
-                q = re.sub(r'^\d+\.\s*', '', line).strip()
-                if q:
-                    questions.append(q)
-
-    return body.strip(), questions, buttons
 
 
 def build_combined_keyboard(
@@ -325,17 +294,35 @@ async def send_rich_response(
     message: Message, text: str, user_id: int, namespace: str, is_complete: bool = True
 ) -> None:
     """Parse AI output, extract buttons/questions, send as native Rich Messages."""
+    
+    from rich_api import parse_ai_json
+    from aiogram.types import InputRichMessage
 
-    # Extract buttons and questions from the raw AI output
-    body, questions, buttons = parse_dynamic_buttons(text)
+    # Extract buttons and questions natively from the JSON output
+    html_body, questions, buttons = parse_ai_json(text)
+    
     keyboard = build_combined_keyboard(questions, buttons, namespace, include_continue=not is_complete)
     
     # Store follow-up questions so the number shortcut ("1", "2", "3") works
     if questions:
         session_manager.set_followups(user_id, questions)
 
-    # Send as native Rich Message with intelligent chunking
-    await send_chunked_rich_message(bot, message.chat.id, None, body, keyboard)
+    # Send the unified rich message using Telegram HTML
+    try:
+        native_rich = InputRichMessage(html=html_body)
+        await bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=native_rich,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Failed to send rich message: {e}")
+        # Fallback to plain text
+        await message.answer(
+            text=html_body[:4000],
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -396,11 +383,11 @@ async def handle_flashcard_response(
 
     session_manager.set_flashcard_back(user_id, card['back'])
 
-    front_md = f"## 🗂️ Flashcard\n\n{card['front']}"
+    front_html = f"<b>🗂️ Flashcard</b>\n\n{card['front']}"
     flip_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Flip to see answer", callback_data="flip")]
     ])
-    await send_chunked_rich_message(bot, message.chat.id, None, front_md, flip_kb)
+    await message.answer(front_html, parse_mode=ParseMode.HTML, reply_markup=flip_kb)
 
 
 # ---------------------------------------------------------------------------
@@ -639,10 +626,10 @@ async def callback_flip(callback: CallbackQuery) -> None:
         pass
     await callback.answer()
 
-    # Send flashcard back as a Rich Message
-    back_md = f"## 🔄 Answer\n\n{back_text}"
-    next_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Next Flashcard", callback_data="next_flashcard")]])
-    await send_chunked_rich_message(bot, callback.message.chat.id, None, back_md, next_kb)
+    # Send flashcard back as standard HTML
+    back_html = f"<b>💡 Answer</b>\n\n{html.escape(back_text)}"
+    next_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭️ Next Flashcard", callback_data="next_flashcard")]])
+    await callback.message.answer(back_html, parse_mode=ParseMode.HTML, reply_markup=next_kb)
 
 
 # ---------------------------------------------------------------------------
