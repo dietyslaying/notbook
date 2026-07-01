@@ -852,31 +852,34 @@ async def _process_question(
         
         stream = gemini_service.query_rag_stream(namespace, question, history, mode)
         
-        async for chunk_text, chunk_complete in stream:
-            if chunk_text is None:
-                continue
-            full_answer += str(chunk_text)
-            
-            if chunk_complete is not None:
-                is_complete_final = chunk_complete
+        if mode not in ("quiz", "flashcards"):
+            # Use the Semantic Boundary Buffer pipeline
+            async for rendered_html, full_buffer, chunk_complete in stream_pipeline.process_stream(stream):
+                full_answer = full_buffer
+                if chunk_complete is not None:
+                    is_complete_final = chunk_complete
                 
-            # Progressive Rendering Pipeline
-            if mode not in ("quiz", "flashcards"):
-                # Use the Semantic Boundary Buffer pipeline
-                async for rendered_html in stream_pipeline.process_stream([(chunk_text, chunk_complete)]):
-                    if rendered_html and rendered_html != last_rendered_html:
-                        if not stop_event.is_set():
-                            stop_event.set()
-                            thinking_task.cancel()
-                        
-                        try:
-                            await placeholder.edit_text(
-                                text=rendered_html[:4000] + "\n\n<i>✍️ Rendering...</i>",
-                                parse_mode="HTML"
-                            )
-                            last_rendered_html = rendered_html
-                        except Exception:
-                            pass
+                if rendered_html and rendered_html != last_rendered_html:
+                    if not stop_event.is_set():
+                        stop_event.set()
+                        thinking_task.cancel()
+                    
+                    try:
+                        await placeholder.edit_text(
+                            text=rendered_html[:4000] + "\n\n<i>✍️ Rendering...</i>",
+                            parse_mode="HTML"
+                        )
+                        last_rendered_html = rendered_html
+                    except Exception:
+                        pass
+        else:
+            # Simple text accumulation for quiz/flashcards
+            async for chunk_text, chunk_complete in stream:
+                if chunk_text is None:
+                    continue
+                full_answer += str(chunk_text)
+                if chunk_complete is not None:
+                    is_complete_final = chunk_complete
 
         # Final render
         if not stop_event.is_set():

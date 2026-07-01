@@ -8,7 +8,7 @@ class StreamingPipeline:
     def __init__(self, backend_renderer):
         self.backend = backend_renderer
         
-    async def process_stream(self, raw_gemini_stream) -> AsyncGenerator[str, None]:
+    async def process_stream(self, raw_gemini_stream) -> AsyncGenerator[tuple, None]:
         """
         Coordinates the real-time parsing and streaming by maintaining a Semantic Boundary Buffer.
         Instead of yielding arbitrary chunks, it only yields completely formed Component layouts.
@@ -64,11 +64,13 @@ class StreamingPipeline:
                         elif c_type == "divider":
                             rendered_html += "──────────\n\n"
                             
-                    if rendered_html != last_html_state:
+                    if rendered_html != last_html_state or chunk_complete:
                         last_html_state = rendered_html
                         last_component_count = current_count
-                        yield rendered_html
+                        yield (rendered_html, full_buffer, chunk_complete)
                         
             except Exception as e:
                 # If parsing fails mid-stream, just buffer more chunks
+                # Still yield the un-updated HTML so bot.py gets the full_buffer string for history
+                yield (last_html_state, full_buffer, chunk_complete)
                 continue
