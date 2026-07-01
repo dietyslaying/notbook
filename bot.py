@@ -295,32 +295,45 @@ async def send_rich_response(
 ) -> None:
     """Parse AI output, extract buttons/questions, send as native Rich Messages."""
     
-    from rich_api import parse_ai_json
-    from aiogram.types import InputRichMessage
+    # Legacy imports removed
 
-    # Extract buttons and questions natively from the JSON output
-    html_body, questions, buttons = parse_ai_json(text)
+    import json
+    from document_composer import DocumentComposer
+    from renderers import TelegramRenderer
+    
+    try:
+        ast_dict = json.loads(text)
+    except Exception as e:
+        logger.error(f"Failed to parse AI JSON AST: {e}")
+        # Fallback for plain text
+        await message.answer(
+            text=html.escape(text)[:4000],
+            parse_mode="HTML"
+        )
+        return
+
+    composer = DocumentComposer()
+    renderer = TelegramRenderer()
+    
+    composed_ast = composer.compose(ast_dict)
+    html_body = renderer.render(composed_ast)
+    
+    buttons = composed_ast.get("recommended_actions", [])
+    questions = [] # We've moved away from standard questions to recommended actions
     
     keyboard = build_combined_keyboard(questions, buttons, namespace, include_continue=not is_complete)
     
-    # Store follow-up questions so the number shortcut ("1", "2", "3") works
-    if questions:
-        session_manager.set_followups(user_id, questions)
-
-    # Send the unified rich message using Telegram HTML
+    # Send standard HTML message
     try:
-        native_rich = InputRichMessage(html=html_body)
-        await bot.send_rich_message(
-            chat_id=message.chat.id,
-            rich_message=native_rich,
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        logger.error(f"Failed to send rich message: {e}")
-        # Fallback to plain text
         await message.answer(
             text=html_body[:4000],
             parse_mode="HTML",
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.error(f"Failed to send HTML message: {e}")
+        await message.answer(
+            text="⚠️ An error occurred rendering this message.",
             reply_markup=keyboard
         )
 
@@ -797,45 +810,106 @@ async def _process_question(
 ) -> None:
     """Show thinking animation, collect full response, dispatch to mode handler."""
 
+    import time
+    from partial_json_parser import parse_partial_json
+    from document_composer import DocumentComposer
+    from renderers import TelegramRenderer
+    import json
+    import html
+
     placeholder = await message.answer(THINKING_FRAMES[0])
     stop_event = asyncio.Event()
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
     thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
 
+    composer = DocumentComposer()
+    renderer = TelegramRenderer()
+
     try:
         history = session_manager.get_chat_history(user_id)
         mode = session_manager.get_user_mode(user_id)
 
-        # ALL modes now buffer the full response before sending
-        full_answer, is_complete = await collect_full_stream(namespace, question, history, mode)
+        full_answer = ""
+        is_complete_final = True
         
-        # Truncate cleanly if cut off
-        if not is_complete:
-            match = re.search(r'(.+[.!?\n])', full_answer, flags=re.DOTALL)
-            if match:
-                full_answer = match.group(1).strip() + "..."
-            else:
-                full_answer = full_answer.rsplit(' ', 1)[0] + "..."
+        last_edit_time = 0
+        last_rendered_html = ""
         
+        stream = gemini_service.query_rag_stream(namespace, question, history, mode)
+        
+        async for chunk_text, chunk_complete in stream:
+            full_answer += chunk_text
+            if chunk_complete is not None:
+                is_complete_final = chunk_complete
+                
+            # Progressive Rendering (only for non-quiz/flashcard modes)
+            if mode not in ("quiz", "flashcards"):
+                now = time.time()
+                # Edit at most once per 1.5 seconds to avoid rate limits
+                if now - last_edit_time > 1.5:
+                    # Parse partial AST
+                    partial_ast = parse_partial_json(full_answer)
+                    composed_ast = composer.compose(partial_ast)
+                    rendered_html = renderer.render(composed_ast)
+                    
+                    if rendered_html and rendered_html != last_rendered_html:
+                        # Stop animation once we start rendering
+                        if not stop_event.is_set():
+                            stop_event.set()
+                            thinking_task.cancel()
+                        
+                        try:
+                            await placeholder.edit_text(
+                                text=rendered_html[:4000] + "\n\n<i>✍️ Rendering...</i>",
+                                parse_mode="HTML"
+                            )
+                            last_edit_time = now
+                            last_rendered_html = rendered_html
+                        except Exception:
+                            pass # Ignore FloodWait or identical text errors
+
+        # Final render
+        if not stop_event.is_set():
+            stop_event.set()
+            thinking_task.cancel()
+            
         session_manager.add_to_chat_history(user_id, "user", question)
         session_manager.add_to_chat_history(user_id, "model", full_answer)
 
-        # Stop animation & delete placeholder
-        stop_event.set()
-        thinking_task.cancel()
-        try:
-            await placeholder.delete()
-        except Exception:
-            pass
-
         # Dispatch based on mode
         if mode == "quiz":
-            await handle_quiz_response(message, full_answer, user_id, namespace, is_complete)
+            await placeholder.delete()
+            await handle_quiz_response(message, full_answer, user_id, namespace, is_complete_final)
         elif mode == "flashcards":
-            await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete)
+            await placeholder.delete()
+            await handle_flashcard_response(message, full_answer, user_id, namespace, is_complete_final)
         else:
-            # All reading modes (chat, notes, qna, spaced_review) → Rich Messages
-            await send_rich_response(message, full_answer, user_id, namespace, is_complete)
+            # Final Rich Message send
+            try:
+                final_ast = json.loads(full_answer)
+            except Exception:
+                final_ast = parse_partial_json(full_answer) # fallback
+                
+            composed_ast = composer.compose(final_ast)
+            final_html = renderer.render(composed_ast)
+            
+            buttons = composed_ast.get("recommended_actions", [])
+            keyboard = build_combined_keyboard([], buttons, namespace, include_continue=not is_complete_final)
+            
+            try:
+                await placeholder.edit_text(
+                    text=final_html[:4000],
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            except Exception as e:
+                logger.error(f"Failed to edit final message: {e}")
+                # Fallback
+                await placeholder.delete()
+                await message.answer(
+                    text="⚠️ Rendering complete, but an error occurred displaying the final layout.",
+                    reply_markup=keyboard
+                )
 
     except Exception as e:
         stop_event.set()

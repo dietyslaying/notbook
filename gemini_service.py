@@ -126,7 +126,7 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
             )
         )
 
-        from rich_api import TelegramRichMessage
+        from document_ast import DocumentAST
         
         config_kwargs = {
             "system_instruction": system_msg,
@@ -138,7 +138,7 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
         
         if mode not in ("quiz", "flashcards"):
             config_kwargs["response_mime_type"] = "application/json"
-            config_kwargs["response_schema"] = TelegramRichMessage
+            config_kwargs["response_schema"] = DocumentAST
             
         gemini_config = types.GenerateContentConfig(**config_kwargs)
 
