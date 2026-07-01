@@ -1,0 +1,117 @@
+import uuid
+from enum import Enum
+from typing import List, Optional, Literal, Any, Dict
+from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# Component State & Lifecycle
+# ---------------------------------------------------------------------------
+
+class RenderEvent(Enum):
+    ADD = "ADD"
+    UPDATE = "UPDATE"
+    REMOVE = "REMOVE"
+    REPLACE = "REPLACE"
+    MOVE = "MOVE"
+    EXPAND = "EXPAND"
+    COLLAPSE = "COLLAPSE"
+    STREAM_APPEND = "STREAM_APPEND"
+    STREAM_COMPLETE = "STREAM_COMPLETE"
+    ERROR = "ERROR"
+
+class ComponentState(BaseModel):
+    """Encapsulates the rendering and interactivity state of a component."""
+    visible: bool = True
+    collapsed: bool = False
+    loading: bool = False
+    interactive: bool = True
+    disabled: bool = False
+    priority: int = 1
+    importance: Literal["low", "medium", "high"] = "medium"
+    streamed: bool = False
+    animated: bool = False
+    selected: bool = False
+
+# ---------------------------------------------------------------------------
+# Base Component Hierarchy
+# ---------------------------------------------------------------------------
+
+class BaseComponent(BaseModel):
+    version: str = "1.0"
+    component_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    type: str
+    state: ComponentState = Field(default_factory=ComponentState)
+    source_chunk_ids: List[str] = Field(default_factory=list)
+    
+    # Capabilities (override in subclasses if needed)
+    supports_streaming: bool = False
+    supports_collapse: bool = False
+    supports_animation: bool = False
+    supports_export: bool = True
+
+# ---------------------------------------------------------------------------
+# Core Layout Components
+# ---------------------------------------------------------------------------
+
+class TitleComponent(BaseComponent):
+    type: Literal["title"] = "title"
+    text: str
+    icon: Optional[str] = None
+    level: int = 1
+
+class MetadataComponent(BaseComponent):
+    type: Literal["metadata"] = "metadata"
+    reading_time_mins: Optional[int] = None
+    tags: List[str] = Field(default_factory=list)
+
+class ParagraphComponent(BaseComponent):
+    type: Literal["paragraph"] = "paragraph"
+    text: str
+    supports_streaming: bool = True
+
+class ChecklistComponent(BaseComponent):
+    type: Literal["checklist"] = "checklist"
+    items: List[str]
+    supports_streaming: bool = True
+    supports_collapse: bool = True
+
+class TableComponent(BaseComponent):
+    type: Literal["table"] = "table"
+    headers: List[str]
+    rows: List[List[str]]
+    supports_collapse: bool = True
+
+class MathComponent(BaseComponent):
+    type: Literal["math"] = "math"
+    latex: str
+
+class TimelineComponent(BaseComponent):
+    type: Literal["timeline"] = "timeline"
+    events: List[Dict[str, str]]
+
+class CalloutComponent(BaseComponent):
+    type: Literal["callout"] = "callout"
+    variant: Literal["clinical_pearl", "warning", "memory_aid", "info"]
+    text: str
+
+class DividerComponent(BaseComponent):
+    type: Literal["divider"] = "divider"
+
+# ---------------------------------------------------------------------------
+# Section (Container)
+# ---------------------------------------------------------------------------
+
+class Section(BaseComponent):
+    type: Literal["section"] = "section"
+    kind: str # e.g. "overview", "symptoms", "treatment"
+    components: List[BaseComponent] = Field(default_factory=list)
+    supports_collapse: bool = True
+
+# ---------------------------------------------------------------------------
+# Root Document
+# ---------------------------------------------------------------------------
+
+class Document(BaseModel):
+    version: str = "1.0"
+    document_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sections: List[Section] = Field(default_factory=list)

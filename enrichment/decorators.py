@@ -1,26 +1,26 @@
 from typing import Dict, Any
 
 class BaseDecorator:
-    def decorate(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def decorate(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
 class ReadingTimeDecorator(BaseDecorator):
-    def decorate(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def decorate(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         """Calculates rough reading time based on block density."""
         # Simple heuristic for now
-        num_blocks = len(knowledge_tree.get("blocks", []))
+        num_blocks = len(ndm.get("blocks", []))
         estimated_seconds = num_blocks * 15 
         mins = max(1, estimated_seconds // 60)
         
-        knowledge_tree["metadata"] = knowledge_tree.get("metadata", {})
-        knowledge_tree["metadata"]["reading_time_mins"] = mins
+        ndm["metadata"] = ndm.get("metadata", {})
+        ndm["metadata"]["reading_time_mins"] = mins
         
-        return knowledge_tree
+        return ndm
 
 class HighYieldDecorator(BaseDecorator):
-    def decorate(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def decorate(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         """Flags the document as High Yield if certain keywords appear frequently."""
-        return knowledge_tree
+        return ndm
 
 class EnrichmentPipeline:
     def __init__(self):
@@ -31,14 +31,14 @@ class EnrichmentPipeline:
         self.generators = [MemoryAidGenerator(), ClinicalPearlGenerator(), QuizSeedGenerator()]
         self.decorators = [ReadingTimeDecorator(), HighYieldDecorator()]
         
-    def enrich(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def enrich(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         for resolver in self.resolvers:
-            knowledge_tree = resolver.resolve(knowledge_tree)
+            ndm = resolver.resolve(ndm)
             
         for generator in self.generators:
-            knowledge_tree = generator.generate(knowledge_tree)
+            ndm = generator.generate(ndm)
             
         for decorator in self.decorators:
-            knowledge_tree = decorator.decorate(knowledge_tree)
+            ndm = decorator.decorate(ndm)
             
-        return knowledge_tree
+        return ndm

@@ -2,16 +2,16 @@ import re
 from typing import Dict, Any
 
 class BaseResolver:
-    def resolve(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def resolve(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
 class MediaResolver(BaseResolver):
     """
-    Scans the Knowledge Tree for textual mentions of figures (e.g. "Figure 3.4") 
+    Scans the NDM for textual mentions of figures (e.g. "Figure 3.4") 
     and appends a media query so the renderer can fetch and display the image.
     """
-    def resolve(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
-        blocks = knowledge_tree.get("blocks", [])
+    def resolve(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
+        blocks = ndm.get("blocks", [])
         
         for block in blocks:
             b_type = block.get("type")
@@ -25,20 +25,20 @@ class MediaResolver(BaseResolver):
                     block["media_query"] = match.group(0)
                     block["media_type"] = "image"
         
-        return knowledge_tree
+        return ndm
 
 class GlossaryResolver(BaseResolver):
     """
     Identifies complex terms in the text and flags them for glossary definitions.
     (Stubbed implementation for future terminology databases).
     """
-    def resolve(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
+    def resolve(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
         # Future: Match terms against a local SQLite dictionary to inject tooltips
-        return knowledge_tree
+        return ndm
 
 class CitationResolver(BaseResolver):
     """
     Ensures citations map properly to original RAG chunks if available.
     """
-    def resolve(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
-        return knowledge_tree
+    def resolve(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
+        return ndm

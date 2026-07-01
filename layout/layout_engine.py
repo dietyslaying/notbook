@@ -38,22 +38,22 @@ class DividerComponent(LayoutComponent):
 
 class LayoutEngine:
     """
-    Transforms an enriched Knowledge Tree into a Layout Component Tree.
-    Never mutates the original Knowledge Tree.
+    Transforms an enriched NDM into a Layout Component Tree.
+    Never mutates the original NDM.
     """
     def __init__(self, design_system=None):
         from .design_system import DesignSystem
         self.design = design_system or DesignSystem()
 
-    def process(self, knowledge_tree: Dict[str, Any]) -> List[LayoutComponent]:
+    def process(self, ndm: Dict[str, Any]) -> List[LayoutComponent]:
         components = []
         
         # Add title
-        title = knowledge_tree.get("title", "Study Document")
+        title = ndm.get("title", "Study Document")
         components.append(HeadingComponent(text=title, level=1))
         components.append(DividerComponent())
         
-        blocks = knowledge_tree.get("blocks", [])
+        blocks = ndm.get("blocks", [])
         
         for block in blocks:
             b_type = block.get("type")

@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional
 
 class CacheManager:
     """
-    Handles caching of Knowledge Trees and Component Trees based on query/context.
+    Handles caching of NDMs and Component Trees based on query/context.
     """
     def __init__(self):
         # Stubbed memory cache for now. Use Redis/Pinecone in production.

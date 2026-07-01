@@ -328,13 +328,13 @@ async def send_rich_response(
         await message.answer(
             text=html_body[:4000],
             parse_mode="HTML",
-            reply_markup=keyboard
+            
         )
     except Exception as e:
         logger.error(f"Failed to send HTML message: {e}")
         await message.answer(
             text="⚠️ An error occurred rendering this message.",
-            reply_markup=keyboard
+            
         )
 
 
@@ -811,14 +811,15 @@ async def _process_question(
     """Show thinking animation, collect full response, dispatch to mode handler."""
 
     import time
-    from knowledge_validator import KnowledgeValidator
+    from ndm_validator import NDMValidator
     from enrichment.decorators import EnrichmentPipeline
-    from content_intelligence import ContentIntelligence
-    from layout.layout_engine import LayoutEngine
+    from layout.presentation_engine import PresentationEngine
+    from layout.template_registry import TemplateRegistry
+    from layout.page_builder import PageBuilder
     from engine.interaction_engine import InteractionEngine
     from engine.recommendation_engine import RecommendationEngine
-    from renderers.core import StudyContext
-    from renderers.backends.telegram_backend import TelegramBackend
+    from engine.render_planner import RenderPlanner
+    from renderers.backends.telegram_rich_backend import TelegramRichBackend
     from streaming.pipeline import StreamingPipeline
     import json
     import html
@@ -828,17 +829,18 @@ async def _process_question(
     typing_task = asyncio.create_task(keep_typing(message.chat.id, bot))
     thinking_task = asyncio.create_task(animated_thinking(placeholder, stop_event))
 
-    validator = KnowledgeValidator()
+    validator = NDMValidator()
     enricher = EnrichmentPipeline()
-    intelligence = ContentIntelligence()
-    layout_engine = LayoutEngine()
+    presentation_engine = PresentationEngine()
+    template_registry = TemplateRegistry(presentation_engine)
+    page_builder = PageBuilder(template_registry)
     interaction = InteractionEngine()
     recommendation = RecommendationEngine()
+    render_planner = RenderPlanner(interaction)
     
     # Render Context initialization
-    study_context = StudyContext(mode=session_manager.get_user_mode(user_id))
-    renderer = TelegramBackend(study_context)
-    stream_pipeline = StreamingPipeline(renderer)
+    renderer = TelegramRichBackend()
+    # stream_pipeline = StreamingPipeline(renderer) # Temporarily disabled for complete rewrite
 
     try:
         history = session_manager.get_chat_history(user_id)
@@ -907,42 +909,33 @@ async def _process_question(
             # Full final pipeline pass
             valid_tree = validator.validate(final_ast)
             enriched_tree = enricher.enrich(valid_tree)
-            template_type = intelligence.determine_template(enriched_tree)
-            component_tree = layout_engine.process(enriched_tree)
-            component_tree = interaction.append_interactions(component_tree, enriched_tree)
-            component_tree = recommendation.append_recommendations(component_tree, enriched_tree)
             
-            # Temporary fallback for final render
-            final_html = ""
-            for comp in component_tree:
-                c_type = getattr(comp, "type", "")
-                if c_type == "heading":
-                    final_html += f"<b>{getattr(comp, 'icon', '')} {getattr(comp, 'text', '')}</b>\n\n"
-                elif c_type == "paragraph":
-                    final_html += f"{getattr(comp, 'text', '')}\n\n"
-                elif c_type == "checklist":
-                    final_html += "".join([f"• {item}\n" for item in getattr(comp, "items", [])]) + "\n"
-                elif c_type == "table":
-                    final_html += f"<b>{comp.headers[0] if comp.headers else 'Table'}</b>\n"
-                    for row in comp.rows:
-                        final_html += f"• {row[0]}: {row[1]} vs {row[2]}\n"
-                    final_html += "\n"
-                elif c_type == "divider":
-                    final_html += "──────────\n\n"
+            # The New Frozen Pipeline
+            doc = page_builder.build_page(enriched_tree)
             
-            # Interaction buttons (extract from ButtonBarComponent)
-            buttons = []
-            for comp in component_tree:
-                if getattr(comp, "type", "") == "button_bar":
-                    buttons = [b.label for b in getattr(comp, "buttons", [])]
+            # (Skipping recommendations for this iteration to keep it clean)
             
-            keyboard = build_combined_keyboard([], buttons, namespace, include_continue=not is_complete_final)
+            streaming_plan, interaction_tree = render_planner.plan(doc)
+            final_html = renderer.render_streaming_plan(streaming_plan)
+            keyboard_markup = renderer.build_inline_keyboard(interaction_tree)
+            
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            
+            # Convert dict keyboard to Aiogram objects
+            markup = None
+            if keyboard_markup:
+                markup = InlineKeyboardMarkup(inline_keyboard=[])
+                for row in keyboard_markup.get("inline_keyboard", []):
+                    markup.inline_keyboard.append([
+                        InlineKeyboardButton(text=btn["text"], callback_data=btn["callback_data"])
+                        for btn in row
+                    ])
             
             try:
                 await placeholder.edit_text(
                     text=final_html[:4000],
                     parse_mode="HTML",
-                    reply_markup=keyboard
+                    reply_markup=markup
                 )
             except Exception as e:
                 logger.error(f"Failed to edit final message: {e}")
@@ -950,9 +943,8 @@ async def _process_question(
                 await placeholder.delete()
                 await message.answer(
                     text="⚠️ Rendering complete, but an error occurred displaying the final layout.",
-                    reply_markup=keyboard
+                    reply_markup=markup
                 )
-
     except Exception as e:
         stop_event.set()
         thinking_task.cancel()

@@ -1,19 +1,19 @@
 from typing import Dict, Any, List
 
-class KnowledgeValidator:
+class NDMValidator:
     """
-    Cleans and validates the raw Knowledge Tree (NIR) returned by Gemini.
+    Cleans and validates the raw NDM (NIR) returned by Gemini.
     Scrubs empty blocks, bad data, or duplicate entries before enrichment.
     """
     def __init__(self):
         pass
 
-    def validate(self, knowledge_tree: Dict[str, Any]) -> Dict[str, Any]:
-        if not knowledge_tree:
+    def validate(self, ndm: Dict[str, Any]) -> Dict[str, Any]:
+        if not ndm:
             return {}
 
         validated_blocks = []
-        blocks = knowledge_tree.get("blocks", [])
+        blocks = ndm.get("blocks", [])
 
         for block in blocks:
             if not isinstance(block, dict):
@@ -37,8 +37,8 @@ class KnowledgeValidator:
 
             validated_blocks.append(block)
 
-        knowledge_tree["blocks"] = validated_blocks
-        return knowledge_tree
+        ndm["blocks"] = validated_blocks
+        return ndm
         
     def _is_block_empty(self, block: Dict[str, Any]) -> bool:
         """Heuristic to drop completely empty generated blocks."""

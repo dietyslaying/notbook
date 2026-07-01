@@ -14,13 +14,13 @@ class StreamingPipeline:
         Instead of yielding arbitrary chunks, it only yields completely formed Component layouts.
         """
         from partial_json_parser import parse_partial_json
-        from knowledge_validator import KnowledgeValidator
+        from ndm_validator import NDMValidator
         from enrichment.decorators import EnrichmentPipeline
         from content_intelligence import ContentIntelligence
         from layout.layout_engine import LayoutEngine
         import asyncio
 
-        validator = KnowledgeValidator()
+        validator = NDMValidator()
         enricher = EnrichmentPipeline()
         intelligence = ContentIntelligence()
         layout_engine = LayoutEngine()

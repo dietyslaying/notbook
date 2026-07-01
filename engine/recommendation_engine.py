@@ -12,7 +12,7 @@ class RecommendationEngine:
     def __init__(self):
         pass
         
-    def append_recommendations(self, component_tree: List[Any], knowledge_tree: Dict[str, Any]) -> List[Any]:
+    def append_recommendations(self, component_tree: List[Any], ndm: Dict[str, Any]) -> List[Any]:
         # Currently a stub. Will read from user profile/history in the future.
         suggested = ["Pathophysiology", "Pharmacology", "Differential Diagnosis"]
         component_tree.append(RecommendationComponent(topics=suggested))

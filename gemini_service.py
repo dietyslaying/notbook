@@ -127,7 +127,7 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
             )
         )
 
-        from knowledge_tree import KnowledgeDocument
+        from ndm import NotbookDocument
         
         config_kwargs = {
             "system_instruction": system_msg,
@@ -139,7 +139,7 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
         
         if mode not in ("quiz", "flashcards"):
             config_kwargs["response_mime_type"] = "application/json"
-            config_kwargs["response_schema"] = KnowledgeDocument
+            config_kwargs["response_schema"] = NotbookDocument
             
         gemini_config = types.GenerateContentConfig(**config_kwargs)
 
