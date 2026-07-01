@@ -110,8 +110,9 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
             context_text += f"[Page {page}]\n{text}\n\n"
 
         system_msg = prompts['system_instruction']
-        if mode in prompts.get('modes', {}):
-            system_msg += "\n\n" + prompts['modes'][mode]
+        mode_instruction = prompts.get('modes', {}).get(mode, "")
+        if mode_instruction:
+            system_msg += "\n\n" + str(mode_instruction)
 
         contents = []
         if chat_history:

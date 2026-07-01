@@ -34,8 +34,8 @@ class DocumentComposer:
         If a reference or text mentions a figure, inject an image block.
         """
         if block.get("type") == "reference":
-            source = block.get("source", "")
-            excerpt = block.get("excerpt", "")
+            source = str(block.get("source") or "")
+            excerpt = str(block.get("excerpt") or "")
             
             # Simple heuristic: Look for "Figure X.Y"
             match = re.search(r"Figure\s+(\d+\.\d+|\d+)", source + " " + excerpt, re.IGNORECASE)

@@ -838,7 +838,10 @@ async def _process_question(
         stream = gemini_service.query_rag_stream(namespace, question, history, mode)
         
         async for chunk_text, chunk_complete in stream:
-            full_answer += chunk_text
+            if chunk_text is None:
+                continue
+            full_answer += str(chunk_text)
+            
             if chunk_complete is not None:
                 is_complete_final = chunk_complete
                 
@@ -848,9 +851,13 @@ async def _process_question(
                 # Edit at most once per 1.5 seconds to avoid rate limits
                 if now - last_edit_time > 1.5:
                     # Parse partial AST
-                    partial_ast = parse_partial_json(full_answer)
-                    composed_ast = composer.compose(partial_ast)
-                    rendered_html = renderer.render(composed_ast)
+                    try:
+                        partial_ast = parse_partial_json(full_answer)
+                        composed_ast = composer.compose(partial_ast)
+                        rendered_html = renderer.render(composed_ast)
+                    except Exception as parse_e:
+                        logger.error(f"Render error during stream: {parse_e}")
+                        rendered_html = last_rendered_html
                     
                     if rendered_html and rendered_html != last_rendered_html:
                         # Stop animation once we start rendering
