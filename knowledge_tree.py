@@ -44,21 +44,34 @@ class DrugInfoBlock(BaseKnowledgeBlock):
     contraindications: List[str]
     side_effects: List[str]
 
+class ComparisonAspect(BaseModel):
+    aspect: str
+    a: str
+    b: str
+
 class ComparisonBlock(BaseKnowledgeBlock):
     type: Literal["comparison"] = "comparison"
     topic_a: str
     topic_b: str
-    aspects: List[Dict[str, str]] = Field(description="List of dicts: {'aspect': 'Cost', 'a': '$10', 'b': '$100'}")
+    aspects: List[ComparisonAspect]
+
+class TimelineEvent(BaseModel):
+    time: str
+    event: str
 
 class TimelineBlock(BaseKnowledgeBlock):
     type: Literal["timeline"] = "timeline"
-    events: List[Dict[str, str]] = Field(description="List of dicts: {'time': 'Day 1', 'event': 'Symptom onset'}")
+    events: List[TimelineEvent]
+
+class FormulaVariable(BaseModel):
+    name: str
+    meaning: str
 
 class FormulaBlock(BaseKnowledgeBlock):
     type: Literal["formula"] = "formula"
     name: str
     expression: str
-    variables: Dict[str, str] = Field(description="Dict of variables to their meanings")
+    variables: List[FormulaVariable]
 
 class GuidelineBlock(BaseKnowledgeBlock):
     type: Literal["guideline"] = "guideline"

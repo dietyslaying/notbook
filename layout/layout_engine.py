@@ -116,9 +116,9 @@ class LayoutEngine:
             elif b_type == "formula":
                 components.append(HeadingComponent(text=block.get("name", "Formula"), icon="🧮", source_chunk_ids=source_ids))
                 components.append(ParagraphComponent(text=f"`{block.get('expression', '')}`", source_chunk_ids=source_ids))
-                variables = block.get("variables", {})
+                variables = block.get("variables", [])
                 if variables:
-                    var_list = [f"{k}: {v}" for k, v in variables.items()]
+                    var_list = [f"{v.get('name', '')}: {v.get('meaning', '')}" for v in variables]
                     components.append(ChecklistComponent(items=var_list, source_chunk_ids=source_ids))
 
             elif b_type == "guideline":
