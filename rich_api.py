@@ -89,11 +89,13 @@ def json_to_telegram_html(response_json: dict) -> str:
         elif t == "expandable":
             title = _rich_text_to_html(block.get('title', ''))
             content = _rich_text_to_html(block.get('content', ''))
-            parts.append(f"<blockquote expandable><b>{title}</b>\n{content}</blockquote>")
+            parts.append(f"<blockquote expandable><b>{title}</b><br>{content}</blockquote>")
         elif t == "list":
+            list_items = []
             for item in block.get("items", []):
                 text = item.get("text", "")
-                parts.append(f"• {_rich_text_to_html(text)}")
+                list_items.append(f"• {_rich_text_to_html(text)}")
+            parts.append("<br>".join(list_items))
         elif t == "table":
             table_html = "<table>"
             for i, row in enumerate(block.get("rows", [])):
@@ -101,7 +103,6 @@ def json_to_telegram_html(response_json: dict) -> str:
                 cells = row.get("cells", [])
                 for cell in cells:
                     cell_text = _rich_text_to_html(cell.get("text", ""))
-                    # Make first row bold headers if desired, though standard Telegram table formatting handles it.
                     if i == 0:
                         table_html += f"<th>{cell_text}</th>"
                     else:
@@ -112,7 +113,7 @@ def json_to_telegram_html(response_json: dict) -> str:
         elif t == "math":
             parts.append(f"<tg-math-block>{html.escape(block.get('expression', ''))}</tg-math-block>")
             
-    return "\n\n".join(p for p in parts if p.strip())
+    return "<br><br>".join(p for p in parts if p.strip())
 
 
 def parse_ai_json(json_str: str) -> tuple[str, list[str], list[str]]:
