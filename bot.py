@@ -549,15 +549,21 @@ async def cmd_books(message: Message) -> None:
 
 @dp.callback_query(F.data == "open_main")
 async def callback_open_main(callback: CallbackQuery) -> None:
-    await callback.message.edit_reply_markup(reply_markup=get_main_keyboard())
+    try:
+        await callback.message.edit_reply_markup(reply_markup=get_main_keyboard())
+    except Exception:
+        pass
     await callback.answer()
 
 
 @dp.callback_query(F.data == "open_books")
 async def callback_open_books(callback: CallbackQuery) -> None:
-    await callback.message.edit_reply_markup(
-        reply_markup=get_library_keyboard(callback.from_user.id, 0),
-    )
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_library_keyboard(callback.from_user.id, 0),
+        )
+    except Exception:
+        pass
     await callback.answer()
 
 
@@ -572,7 +578,10 @@ async def callback_open_modes(callback: CallbackQuery) -> None:
         [InlineKeyboardButton(text="🔄 Spaced Review", callback_data="setmode|spaced_review")],
         [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")],
     ]
-    await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    except Exception:
+        pass
     await callback.answer()
 
 
@@ -583,22 +592,28 @@ async def callback_setmode(callback: CallbackQuery) -> None:
     session_manager.set_user_mode(user_id, mode)
 
     msg = f"✅ Study Mode set to <b>{mode.replace('_', ' ').title()}</b>!\nAsk me a question to begin."
-    await callback.message.edit_text(
-        msg,
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]]
-        ),
-    )
+    try:
+        await callback.message.edit_text(
+            msg,
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="open_main")]]
+            ),
+        )
+    except Exception:
+        pass
     await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("page|"))
 async def callback_page(callback: CallbackQuery) -> None:
     page = int(callback.data.split("|")[1])
-    await callback.message.edit_reply_markup(
-        reply_markup=get_library_keyboard(callback.from_user.id, page),
-    )
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=get_library_keyboard(callback.from_user.id, page),
+        )
+    except Exception:
+        pass
     await callback.answer()
 
 
