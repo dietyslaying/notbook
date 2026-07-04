@@ -1,4 +1,5 @@
 import logging
+from aiogram.exceptions import TelegramBadRequest
 from interfaces import BotState, WorkspaceType, Event, EventType
 from handlers.keyboard_utils import to_aiogram_keyboard
 
@@ -47,7 +48,13 @@ async def handle_callback(
         screen = renderer.render(doc)
         
         # Update message
-        await callback_query.message.edit_text(
-            text=screen.html,
-            reply_markup=to_aiogram_keyboard(screen.keyboard)
-        )
+        try:
+            await callback_query.message.edit_text(
+                text=screen.html,
+                reply_markup=to_aiogram_keyboard(screen.keyboard)
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                pass
+            else:
+                raise
