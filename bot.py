@@ -54,7 +54,12 @@ async def on_callback(callback_query: CallbackQuery):
     )
     await callback_query.answer()
 
-async def main():
+async def on_startup(bot: Bot) -> None:
+    webhook_url = f"{os.getenv('RENDER_EXTERNAL_URL')}/webhook"
+    await bot.set_webhook(webhook_url)
+    logging.info(f"Webhook set to: {webhook_url}")
+
+if __name__ == "__main__":
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set")
@@ -66,12 +71,30 @@ async def main():
     dp.message.register(on_message, F.text)
     dp.callback_query.register(on_callback)
     
-    logging.info("Starting Notbook Phase 1 Bot...")
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
     
-    # Clean up any leftover webhooks from previous legacy deployments
-    await bot.delete_webhook(drop_pending_updates=True)
-    
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    if render_url:
+        logging.info("Running in Webhook mode (Render)...")
+        from aiohttp import web
+        from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+        
+        dp.startup.register(on_startup)
+        
+        app = web.Application()
+        
+        async def health(request):
+            return web.Response(text="OK", status=200)
+        app.router.add_get("/", health)
+        
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+        setup_application(app, dp, bot=bot)
+        
+        port = int(os.getenv("PORT", 8000))
+        web.run_app(app, host="0.0.0.0", port=port)
+    else:
+        logging.info("Running in Polling mode (Local)...")
+        async def run_polling():
+            await bot.delete_webhook(drop_pending_updates=True)
+            await dp.start_polling(bot)
+            
+        asyncio.run(run_polling())
