@@ -3,6 +3,29 @@ from interfaces import IntentType, WorkspaceType, BotState, UserMode
 
 logger = logging.getLogger(__name__)
 
+async def handle_start_command(
+    message,
+    session_manager,
+    menu_workspace,
+    renderer,
+    **kwargs
+):
+    user_id = message.from_user.id
+    
+    session = await session_manager.create(
+        user_id=user_id,
+        topic="Main Menu",
+        workspace_type=WorkspaceType.MENU,
+        user_mode=UserMode.STUDENT
+    )
+    session.current_state = BotState.MAIN_MENU
+    await session_manager.update(session)
+    
+    doc = menu_workspace.generate_screen(topic="Main Menu", screen_id="main")
+    screen = renderer.render(doc)
+    await message.answer(screen.html, reply_markup=screen.keyboard)
+
+
 async def handle_text_message(
     message,
     intent_engine,

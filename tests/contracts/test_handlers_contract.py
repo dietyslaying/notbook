@@ -20,6 +20,7 @@ def mock_deps():
         "intent_engine": AsyncMock(),
         "session_manager": AsyncMock(),
         "state_machine": MagicMock(),
+        "menu_workspace": MagicMock(),
         "disease_workspace": MagicMock(),
         "drug_workspace": MagicMock(),
         "renderer": MagicMock()

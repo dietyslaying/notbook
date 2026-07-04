@@ -7,15 +7,17 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.filters import CommandStart
 
 from intent_engine.engine import IntentEngine
 from session_manager.store import InMemoryStore
 from session_manager.manager import SessionManager
 from state_machine.machine import StateMachine
+from workspaces.menu import MenuWorkspace
 from workspaces.disease import DiseaseWorkspace
 from workspaces.drug import DrugWorkspace
 from renderer.telegram_renderer import TelegramRenderer
-from handlers.message_handler import handle_text_message
+from handlers.message_handler import handle_text_message, handle_start_command
 from handlers.callback_handler import handle_callback
 
 try:
@@ -29,9 +31,18 @@ logging.basicConfig(level=logging.INFO)
 intent_engine = IntentEngine()
 session_manager = SessionManager(store=InMemoryStore())
 state_machine = StateMachine()
+menu_workspace = MenuWorkspace()
 disease_workspace = DiseaseWorkspace()
 drug_workspace = DrugWorkspace()
 renderer = TelegramRenderer()
+
+async def on_start(message: Message):
+    await handle_start_command(
+        message=message,
+        session_manager=session_manager,
+        menu_workspace=menu_workspace,
+        renderer=renderer
+    )
 
 async def on_message(message: Message):
     await handle_text_message(
@@ -48,6 +59,7 @@ async def on_callback(callback_query: CallbackQuery):
         callback_query=callback_query,
         session_manager=session_manager,
         state_machine=state_machine,
+        menu_workspace=menu_workspace,
         disease_workspace=disease_workspace,
         drug_workspace=drug_workspace,
         renderer=renderer
@@ -68,6 +80,7 @@ if __name__ == "__main__":
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     
+    dp.message.register(on_start, CommandStart())
     dp.message.register(on_message, F.text)
     dp.callback_query.register(on_callback)
     

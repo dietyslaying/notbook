@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class WorkspaceType(str, Enum):
+    MENU       = "menu"
     DISEASE    = "disease"
     DRUG       = "drug"
     CASE       = "case"
