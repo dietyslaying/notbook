@@ -55,13 +55,22 @@ class IntentEngine(IIntentEngine):
                 confidence=0.9
             )
 
-        # Drug lookup
-        if text_lower.strip() == "methylphenidate":
-            return IntentResult(
-                intent_type=IntentType.DRUG_LOOKUP,
-                topic="METHYLPHENIDATE",
-                topic_type=WorkspaceType.DRUG,
-                confidence=0.9
-            )
+        # Fallback for short generic queries
+        if len(text_lower) < 40:
+            drug_keywords = ['aspirin', 'methylphenidate', 'ibuprofen', 'paracetamol', 'lisinopril', 'metformin', 'amoxicillin', 'omeprazole', 'atorvastatin']
+            if any(drug in text_lower for drug in drug_keywords):
+                return IntentResult(
+                    intent_type=IntentType.DRUG_LOOKUP,
+                    topic=text.strip().upper(),
+                    topic_type=WorkspaceType.DRUG,
+                    confidence=0.8
+                )
+            else:
+                return IntentResult(
+                    intent_type=IntentType.TOPIC_OVERVIEW,
+                    topic=text.strip().upper(),
+                    topic_type=WorkspaceType.DISEASE,
+                    confidence=0.7
+                )
 
         return IntentResult(intent_type=IntentType.UNKNOWN)

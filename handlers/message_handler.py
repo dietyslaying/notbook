@@ -33,6 +33,12 @@ async def handle_text_message(
     session_manager,
     disease_workspace,
     drug_workspace,
+    case_workspace,
+    comparison_workspace,
+    algorithm_workspace,
+    lab_test_workspace,
+    anatomy_workspace,
+    procedure_workspace,
     renderer,
     **kwargs
 ):
@@ -55,15 +61,52 @@ async def handle_text_message(
     )
     
     # 3. Handle specific intent
-    if intent.intent_type == IntentType.TOPIC_OVERVIEW and intent.topic_type == WorkspaceType.DISEASE:
+    # Loading state
+    loading_msg = await message.answer("🔄 <b>Generating workspace...</b>\n<i>Analyzing content...</i>")
+    
+    if intent.topic_type == WorkspaceType.DISEASE:
         session.current_state = BotState.WORKSPACE_DISEASE_OVERVIEW
         await session_manager.update(session)
-        
-        # Loading state
-        loading_msg = await message.answer("🔄 <b>Generating workspace...</b>\n<i>Analyzing content...</i>")
-        
         doc = disease_workspace.generate_screen(session=session, screen_id="overview")
-        screen = renderer.render(doc)
         
-        await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+    elif intent.topic_type == WorkspaceType.DRUG:
+        session.current_state = BotState.WORKSPACE_DRUG_OVERVIEW
+        await session_manager.update(session)
+        doc = drug_workspace.generate_screen(session=session, screen_id="overview")
+        
+    elif intent.topic_type == WorkspaceType.CASE:
+        session.current_state = BotState.WORKSPACE_CASE_PRESENTATION
+        await session_manager.update(session)
+        doc = case_workspace.generate_screen(session=session, screen_id="presentation")
+        
+    elif intent.topic_type == WorkspaceType.COMPARISON:
+        session.current_state = BotState.WORKSPACE_COMPARISON_OVERVIEW
+        await session_manager.update(session)
+        doc = comparison_workspace.generate_screen(session=session, screen_id="overview")
+        
+    elif intent.topic_type == WorkspaceType.ALGORITHM:
+        session.current_state = BotState.WORKSPACE_ALGORITHM_OVERVIEW
+        await session_manager.update(session)
+        doc = algorithm_workspace.generate_screen(session=session, screen_id="overview")
+        
+    elif intent.topic_type == WorkspaceType.LAB_TEST:
+        session.current_state = BotState.WORKSPACE_LAB_OVERVIEW
+        await session_manager.update(session)
+        doc = lab_test_workspace.generate_screen(session=session, screen_id="overview")
+        
+    elif intent.topic_type == WorkspaceType.ANATOMY:
+        session.current_state = BotState.LOADING
+        await session_manager.update(session)
+        doc = anatomy_workspace.generate_screen(session=session, screen_id="overview")
+        
+    elif intent.topic_type == WorkspaceType.PROCEDURE:
+        session.current_state = BotState.LOADING
+        await session_manager.update(session)
+        doc = procedure_workspace.generate_screen(session=session, screen_id="overview")
+    else:
+        await loading_msg.delete()
+        return
+
+    screen = renderer.render(doc)
+    await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
 

@@ -12,6 +12,12 @@ async def handle_callback(
     menu_workspace,
     disease_workspace,
     drug_workspace,
+    case_workspace,
+    comparison_workspace,
+    algorithm_workspace,
+    lab_test_workspace,
+    anatomy_workspace,
+    procedure_workspace,
     renderer,
     **kwargs
 ):
@@ -40,6 +46,18 @@ async def handle_callback(
             doc = disease_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.DRUG:
             doc = drug_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.CASE:
+            doc = case_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.COMPARISON:
+            doc = comparison_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.ALGORITHM:
+            doc = algorithm_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.LAB_TEST:
+            doc = lab_test_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.ANATOMY:
+            doc = anatomy_workspace.generate_screen(session=session, screen_id=screen_id)
+        elif session.workspace_type == WorkspaceType.PROCEDURE:
+            doc = procedure_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.MENU:
             doc = menu_workspace.generate_screen(topic="Main Menu", screen_id=screen_id)
         else:

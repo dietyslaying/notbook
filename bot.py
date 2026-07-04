@@ -16,6 +16,12 @@ from state_machine.machine import StateMachine
 from workspaces.menu import MenuWorkspace
 from workspaces.disease import DiseaseWorkspace
 from workspaces.drug import DrugWorkspace
+from workspaces.case import CaseWorkspace
+from workspaces.comparison import ComparisonWorkspace
+from workspaces.algorithm import AlgorithmWorkspace
+from workspaces.lab_test import LabTestWorkspace
+from workspaces.anatomy import AnatomyWorkspace
+from workspaces.procedure import ProcedureWorkspace
 from renderer.telegram_renderer import TelegramRenderer
 from handlers.message_handler import handle_text_message, handle_start_command
 from handlers.callback_handler import handle_callback
@@ -41,6 +47,12 @@ presentation_engine = PresentationEngine()
 menu_workspace = MenuWorkspace()
 disease_workspace = DiseaseWorkspace(ia_generator, presentation_engine)
 drug_workspace = DrugWorkspace(ia_generator, presentation_engine)
+case_workspace = CaseWorkspace(ia_generator, presentation_engine)
+comparison_workspace = ComparisonWorkspace(ia_generator, presentation_engine)
+algorithm_workspace = AlgorithmWorkspace(ia_generator, presentation_engine)
+lab_test_workspace = LabTestWorkspace(ia_generator, presentation_engine)
+anatomy_workspace = AnatomyWorkspace(ia_generator, presentation_engine)
+procedure_workspace = ProcedureWorkspace(ia_generator, presentation_engine)
 renderer = TelegramRenderer()
 
 async def on_start(message: Message):
@@ -58,6 +70,12 @@ async def on_message(message: Message):
         session_manager=session_manager,
         disease_workspace=disease_workspace,
         drug_workspace=drug_workspace,
+        case_workspace=case_workspace,
+        comparison_workspace=comparison_workspace,
+        algorithm_workspace=algorithm_workspace,
+        lab_test_workspace=lab_test_workspace,
+        anatomy_workspace=anatomy_workspace,
+        procedure_workspace=procedure_workspace,
         renderer=renderer
     )
 
@@ -69,6 +87,12 @@ async def on_callback(callback_query: CallbackQuery):
         menu_workspace=menu_workspace,
         disease_workspace=disease_workspace,
         drug_workspace=drug_workspace,
+        case_workspace=case_workspace,
+        comparison_workspace=comparison_workspace,
+        algorithm_workspace=algorithm_workspace,
+        lab_test_workspace=lab_test_workspace,
+        anatomy_workspace=anatomy_workspace,
+        procedure_workspace=procedure_workspace,
         renderer=renderer
     )
     await callback_query.answer()
