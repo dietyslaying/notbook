@@ -41,7 +41,7 @@ async def handle_callback(
         elif session.workspace_type == WorkspaceType.DRUG:
             doc = drug_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.MENU:
-            doc = menu_workspace.generate_screen(topic="Main Menu", screen_id="main")
+            doc = menu_workspace.generate_screen(topic="Main Menu", screen_id=screen_id)
         else:
             return
             
