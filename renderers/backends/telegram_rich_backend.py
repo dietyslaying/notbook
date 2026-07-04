@@ -37,17 +37,30 @@ class TelegramRichBackend:
                     payload = data.get("payload", {})
                     
                     if c_type == "header_card":
-                        icon = payload.get("icon", "📚")
+                        icon = payload.get("icon", "📘")
                         title = self._safe_escape(payload.get("title", ""))
                         subtitle = self._safe_escape(payload.get("subtitle", ""))
-                        current_html_buffer += "━━━━━━━━━━━━━━━━━━\n"
-                        current_html_buffer += f"{icon} <b>{title.upper()}</b>\n"
+                        current_html_buffer += f"{icon} <b>{title}</b>\n"
                         if subtitle:
                             current_html_buffer += f"<i>{subtitle}</i>\n"
-                        current_html_buffer += "━━━━━━━━━━━━━━━━━━\n\n"
+                        current_html_buffer += "\n"
                         
-                    elif c_type == "metadata_card":
-                        current_html_buffer += "<i>Based on Provided Study Material...</i>\n\n"
+                    elif c_type == "footer_card":
+                        book = self._safe_escape(payload.get("source_textbook", "Primary Text"))
+                        current_html_buffer += f"📘 <b>{book}</b>\n"
+                        chapter = self._safe_escape(payload.get("chapter", ""))
+                        page = self._safe_escape(payload.get("page", ""))
+                        if chapter and page:
+                            current_html_buffer += f"{chapter}, Page {page}\n"
+                        elif chapter:
+                            current_html_buffer += f"Chapter {chapter}\n"
+                        elif page:
+                            current_html_buffer += f"Page {page}\n"
+                        
+                        conf = self._safe_escape(payload.get("confidence", ""))
+                        if conf:
+                            current_html_buffer += f"\nConfidence: {conf}\n"
+                        current_html_buffer += "\n"
                     elif c_type == "tldr":
                         text = self._safe_escape(payload.get("text", ""))
                         current_html_buffer += f"💡 <b>TL;DR:</b> {text}\n\n"
@@ -64,14 +77,18 @@ class TelegramRichBackend:
                     elif c_type == "section_header":
                         title = self._safe_escape(payload.get("title", ""))
                         icon = payload.get("icon", "🔹")
-                        current_html_buffer += f"— {icon} <b>{title.upper()}</b> —\n"
+                        current_html_buffer += f"{icon} <b>{title}</b>\n\n"
+                        
+                    elif c_type == "subheader":
+                        title = self._safe_escape(payload.get("title", ""))
+                        current_html_buffer += f"<b>{title.upper()}</b>\n"
                         
                     elif c_type == "reference_card":
                         citations = payload.get("citations", [])
                         if citations:
                             current_html_buffer += "📚 <b>References</b>\n"
                             for i, c in enumerate(citations, 1):
-                                current_html_buffer += f"  <pre>{i}. {self._safe_escape(c)}</pre>\n"
+                                current_html_buffer += f"{i}. {self._safe_escape(c)}\n"
                             current_html_buffer += "\n"
                             
                     elif c_type == "title": # legacy generic title
@@ -92,14 +109,33 @@ class TelegramRichBackend:
                     elif c_type == "table":
                         headers = payload.get("headers", [])
                         rows = payload.get("rows", [])
-                        if headers:
-                            current_html_buffer += f"<b>{self._safe_escape(headers[0])}</b>\n"
-                        for row in rows:
-                            if len(row) == 3:
-                                current_html_buffer += f" • {self._safe_escape(row[0])}: {self._safe_escape(row[1])} vs {self._safe_escape(row[2])}\n"
-                            elif len(row) == 2:
-                                current_html_buffer += f" • {self._safe_escape(row[0])}: {self._safe_escape(row[1])}\n"
-                        current_html_buffer += "\n"
+                        if headers or rows:
+                            # Calculate column widths
+                            cols = max(len(headers), max((len(r) for r in rows), default=0))
+                            widths = [0] * cols
+                            
+                            for i, h in enumerate(headers):
+                                widths[i] = max(widths[i], len(self._safe_escape(h)))
+                            for r in rows:
+                                for i, cell in enumerate(r):
+                                    widths[i] = max(widths[i], len(self._safe_escape(cell)))
+                                    
+                            out = ""
+                            if headers:
+                                for i, h in enumerate(headers):
+                                    out += f"| {self._safe_escape(h).ljust(widths[i])} "
+                                out += "|\n"
+                                for i in range(cols):
+                                    out += "|" + "-" * (widths[i] + 2)
+                                out += "|\n"
+                            
+                            for r in rows:
+                                for i in range(cols):
+                                    cell = self._safe_escape(r[i]) if i < len(r) else ""
+                                    out += f"| {cell.ljust(widths[i])} "
+                                out += "|\n"
+                            
+                            current_html_buffer += f"<pre>{out}</pre>\n\n"
                         
                     elif c_type == "callout":
                         variant = payload.get("variant", "info")
@@ -108,14 +144,17 @@ class TelegramRichBackend:
                         
                         prefix = "💡"
                         if variant == "clinical_pearl":
-                            prefix = "🟠 PEARL:"
+                            prefix = "💡"
+                            if not title: title = "Clinical Pearl"
                         elif variant == "warning":
-                            prefix = "🔴 WARNING:"
+                            prefix = "🔴"
+                            if not title: title = "Warning"
                         elif variant == "memory_aid":
-                            prefix = "🔵 MNEMONIC:"
+                            prefix = "🔵"
+                            if not title: title = "Mnemonic"
                             
                         block_title = f"{prefix} {title}" if title else prefix
-                        current_html_buffer += f"<blockquote><b>{block_title}</b> {text}</blockquote>\n\n"
+                        current_html_buffer += f"<blockquote><b>{block_title}</b>\n{text}</blockquote>\n\n"
                         
                     elif c_type == "divider":
                         current_html_buffer += "──────────\n\n"
@@ -137,7 +176,7 @@ class TelegramRichBackend:
                     elif c_type == "details":
                         title = self._safe_escape(payload.get("title", "Details"))
                         text = self._safe_escape(payload.get("text", ""))
-                        current_html_buffer += f"<blockquote expandable><b>{title}</b>\n{text}</blockquote>\n\n"
+                        current_html_buffer += f"<blockquote>▶ <b>{title}</b>\n{text}</blockquote>\n\n"
                         
                     elif c_type == "spoiler":
                         text = self._safe_escape(payload.get("text", ""))
@@ -168,14 +207,23 @@ class TelegramRichBackend:
     def build_inline_keyboard(self, interaction_tree: InteractionTree) -> dict:
         """
         Translates the InteractionTree into a Telegram InlineKeyboardMarkup dict.
+        Combines follow-up questions (full width) and quick actions (2 columns).
         """
         inline_keyboard = []
         
-        # We allow up to 4 actions total, built as rows of up to 2 buttons
-        actions_to_render = [a for a in interaction_tree.actions if not a.disabled][:4]
+        follow_ups = [a for a in interaction_tree.actions if not a.disabled and getattr(a, "kind", "") == "follow_up"]
+        quick_actions = [a for a in interaction_tree.actions if not a.disabled and getattr(a, "kind", "") != "follow_up"]
         
+        # 1. Full width for follow up questions
+        for fu in follow_ups[:3]:
+            inline_keyboard.append([{
+                "text": fu.label,
+                "callback_data": fu.action_data
+            }])
+            
+        # 2. 2-columns for quick actions
         row = []
-        for action in actions_to_render:
+        for action in quick_actions[:6]: # Limit to 6 quick actions
             row.append({
                 "text": action.label,
                 "callback_data": action.action_data

@@ -8,6 +8,7 @@ class ActionNode(BaseModel):
     action_data: str
     is_primary: bool = False
     disabled: bool = False
+    kind: str = "quick_action"
 
 class InteractionTree(BaseModel):
     version: str = "1.0"
@@ -22,6 +23,19 @@ class InteractionEngine:
     def generate_interactions(self, doc: Document) -> InteractionTree:
         actions = []
         
+        # 1. Follow-Up Questions (Top priority)
+        number_emojis = ["1️⃣", "2️⃣", "3️⃣"]
+        for i, q in enumerate(doc.follow_up_questions[:3]):
+            prefix = number_emojis[i] if i < len(number_emojis) else "❓"
+            # Truncate label if necessary
+            label_text = f"{prefix} {q[:40]}..." if len(q) > 40 else f"{prefix} {q}"
+            actions.append(ActionNode(
+                label=label_text, 
+                action_data=f"db|{q}"[:64], 
+                kind="follow_up"
+            ))
+            
+        # 2. General Quick Actions
         # Analyze Document Sections to add dynamic actions
         section_kinds = [sec.kind.lower() for sec in doc.sections]
         

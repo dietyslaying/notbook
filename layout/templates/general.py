@@ -1,8 +1,9 @@
 from typing import List, Dict, Any
 from layout.components import (
-    Section, HeaderCardComponent, MetadataCardComponent, 
+    Section, HeaderCardComponent, FooterCardComponent, 
     TLDRComponent, SectionHeaderComponent,
-    ReferenceCardComponent
+    FactGridComponent, ReferenceCardComponent,
+    ChecklistComponent, CalloutComponent, ParagraphComponent
 )
 from layout.templates.base import PageTemplate
 from layout.presentation_engine import PresentationEngine
@@ -29,8 +30,7 @@ class GeneralTemplate(PageTemplate):
         sections.append(Section(
             kind="Header", 
             components=[
-                HeaderCardComponent(title=doc_topic, icon="📚"),
-                MetadataCardComponent(source_textbook="Primary Medical Text", reading_time_mins=3)
+                HeaderCardComponent(title=doc_topic, icon="📘")
             ],
             supports_collapse=False
         ))
@@ -66,4 +66,5 @@ class GeneralTemplate(PageTemplate):
             sec.state.collapsed = True
             sections.append(sec)
 
+        sections.append(Section(kind="Footer", components=[FooterCardComponent(source_textbook="Kaplan Pediatrics", chapter="Chapter 18", page="1010", confidence="High")], supports_collapse=False))
         return sections

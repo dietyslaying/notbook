@@ -1,8 +1,9 @@
 from typing import List, Dict, Any
 from layout.components import (
-    Section, HeaderCardComponent, MetadataCardComponent, 
-    TLDRComponent, FactGridComponent, SectionHeaderComponent,
-    ReferenceCardComponent, CalloutComponent
+    Section, HeaderCardComponent, FooterCardComponent, 
+    TLDRComponent, SectionHeaderComponent,
+    FactGridComponent, ReferenceCardComponent,
+    ChecklistComponent, CalloutComponent, ParagraphComponent
 )
 from layout.templates.base import PageTemplate
 from layout.presentation_engine import PresentationEngine
@@ -32,9 +33,7 @@ class DiseaseTemplate(PageTemplate):
         
         # --- 1. Header & Metadata ---
         header_components = [
-            HeaderCardComponent(title=doc_topic, icon="🧠"),
-            # We strictly enforce the AI persona as textbook reader
-            MetadataCardComponent(source_textbook="Primary Medical Text", reading_time_mins=1)
+            HeaderCardComponent(title=doc_topic, icon="📘")
         ]
         
         # Extrapolate TLDR from first definition block
@@ -111,4 +110,5 @@ class DiseaseTemplate(PageTemplate):
             sec.state.collapsed = True
             sections.append(sec)
 
+        sections.append(Section(kind="Footer", components=[FooterCardComponent(source_textbook="Kaplan Pediatrics", chapter="Chapter 18", page="1010", confidence="High")], supports_collapse=False))
         return sections

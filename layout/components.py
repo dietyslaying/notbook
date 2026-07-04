@@ -58,12 +58,12 @@ class HeaderCardComponent(BaseComponent):
     icon: str = "📚"
     subtitle: Optional[str] = None
 
-class MetadataCardComponent(BaseComponent):
-    type: Literal["metadata_card"] = "metadata_card"
+class FooterCardComponent(BaseComponent):
+    type: Literal["footer_card"] = "footer_card"
     source_textbook: str
     chapter: Optional[str] = None
-    reading_time_mins: Optional[int] = None
-    tags: List[str] = Field(default_factory=list)
+    page: Optional[str] = None
+    confidence: Optional[str] = None
 
 class TLDRComponent(BaseComponent):
     type: Literal["tldr"] = "tldr"
@@ -141,6 +141,10 @@ class MathComponent(BaseComponent):
 class TimelineComponent(BaseComponent):
     type: Literal["timeline"] = "timeline"
     events: List[Dict[str, str]]
+
+class SubheaderComponent(BaseComponent):
+    type: Literal["subheader"] = "subheader"
+    title: str
 
 class CalloutComponent(BaseComponent):
     type: Literal["callout"] = "callout"

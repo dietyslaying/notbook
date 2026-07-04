@@ -59,11 +59,12 @@ class PresentationEngine:
         elif b_type == "drug_info":
             mech = block.get("mechanism")
             if mech:
-                components.append(ParagraphComponent(text=f"Mechanism: {mech}", source_chunk_ids=source_ids))
+                components.append(SubheaderComponent(title="Mechanism", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=mech, source_chunk_ids=source_ids))
             
             indications = block.get("indications", [])
             if indications:
-                components.append(ParagraphComponent(text="Indications:", source_chunk_ids=source_ids))
+                components.append(SubheaderComponent(title="Indications", source_chunk_ids=source_ids))
                 components.append(ChecklistComponent(items=indications, source_chunk_ids=source_ids))
             
             contraindications = block.get("contraindications", [])
@@ -73,7 +74,7 @@ class PresentationEngine:
                     
             side_effects = block.get("side_effects", [])
             if side_effects:
-                components.append(ParagraphComponent(text="Side Effects:", source_chunk_ids=source_ids))
+                components.append(SubheaderComponent(title="Common Side Effects", source_chunk_ids=source_ids))
                 components.append(ChecklistComponent(items=side_effects, source_chunk_ids=source_ids))
 
         elif b_type == "timeline":
@@ -101,11 +102,12 @@ class PresentationEngine:
                 components.append(ParagraphComponent(text=presentation, source_chunk_ids=source_ids))
             findings = block.get("key_findings", [])
             if findings:
-                components.append(ParagraphComponent(text="Key Findings:", source_chunk_ids=source_ids))
+                components.append(SubheaderComponent(title="Key Findings", source_chunk_ids=source_ids))
                 components.append(ChecklistComponent(items=findings, source_chunk_ids=source_ids))
             diagnosis = block.get("diagnosis")
             if diagnosis:
-                components.append(CalloutComponent(variant="clinical_pearl", text=f"Diagnosis: {diagnosis}", source_chunk_ids=source_ids))
+                components.append(SubheaderComponent(title="Most Likely Diagnosis", source_chunk_ids=source_ids))
+                components.append(ParagraphComponent(text=diagnosis, source_chunk_ids=source_ids))
 
         elif b_type == "concept":
             details = block.get("details", [])
