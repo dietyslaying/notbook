@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 from layout.components import (
-    BaseComponent, MetadataCardComponent, ParagraphComponent, 
+    BaseComponent, FooterCardComponent, SubheaderComponent, ParagraphComponent, 
     ChecklistComponent, TableComponent, MathComponent, TimelineComponent, 
     CalloutComponent, DividerComponent, FactGridComponent, ReferenceCardComponent,
     BlockQuoteComponent, DetailsComponent, SpoilerComponent, FigureComponent,
