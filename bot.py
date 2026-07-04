@@ -67,6 +67,10 @@ async def main():
     dp.callback_query.register(on_callback)
     
     logging.info("Starting Notbook Phase 1 Bot...")
+    
+    # Clean up any leftover webhooks from previous legacy deployments
+    await bot.delete_webhook(drop_pending_updates=True)
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
