@@ -1,5 +1,6 @@
 import logging
 from interfaces import BotState, WorkspaceType, Event, EventType
+from handlers.keyboard_utils import to_aiogram_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -46,4 +47,7 @@ async def handle_callback(
         screen = renderer.render(doc)
         
         # Update message
-        await callback_query.message.edit_text(screen.html)
+        await callback_query.message.edit_text(
+            text=screen.html,
+            reply_markup=to_aiogram_keyboard(screen.keyboard)
+        )

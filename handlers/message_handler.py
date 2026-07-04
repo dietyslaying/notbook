@@ -1,5 +1,6 @@
 import logging
 from interfaces import IntentType, WorkspaceType, BotState, UserMode
+from handlers.keyboard_utils import to_aiogram_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def handle_start_command(
     
     doc = menu_workspace.generate_screen(topic="Main Menu", screen_id="main")
     screen = renderer.render(doc)
-    await message.answer(screen.html, reply_markup=screen.keyboard)
+    await message.answer(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
 
 
 async def handle_text_message(
