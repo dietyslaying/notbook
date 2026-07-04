@@ -83,6 +83,36 @@ class ReferenceCardComponent(BaseComponent):
     type: Literal["reference_card"] = "reference_card"
     citations: List[str]
 
+class BlockQuoteComponent(BaseComponent):
+    type: Literal["block_quote"] = "block_quote"
+    text: str
+
+class DetailsComponent(BaseComponent):
+    type: Literal["details"] = "details"
+    title: str
+    text: str
+    
+class SpoilerComponent(BaseComponent):
+    type: Literal["spoiler"] = "spoiler"
+    text: str
+
+class FigureComponent(BaseComponent):
+    type: Literal["figure"] = "figure"
+    caption: str
+    
+class SlideshowComponent(BaseComponent):
+    type: Literal["slideshow"] = "slideshow"
+    title: str
+    
+class VideoComponent(BaseComponent):
+    type: Literal["video"] = "video"
+    title: str
+    
+class AudioComponent(BaseComponent):
+    type: Literal["audio"] = "audio"
+    title: str
+
+
 # ---------------------------------------------------------------------------
 # Standard Layout Components
 # ---------------------------------------------------------------------------

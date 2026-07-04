@@ -2,7 +2,9 @@ from typing import Dict, Any, List
 from layout.components import (
     BaseComponent, MetadataCardComponent, ParagraphComponent, 
     ChecklistComponent, TableComponent, MathComponent, TimelineComponent, 
-    CalloutComponent, DividerComponent, FactGridComponent, ReferenceCardComponent
+    CalloutComponent, DividerComponent, FactGridComponent, ReferenceCardComponent,
+    BlockQuoteComponent, DetailsComponent, SpoilerComponent, FigureComponent,
+    SlideshowComponent, VideoComponent, AudioComponent
 )
 
 class PresentationEngine:
@@ -120,6 +122,6 @@ class PresentationEngine:
             components.append(ParagraphComponent(text=source, source_chunk_ids=source_ids))
             excerpt = block.get("excerpt")
             if excerpt:
-                components.append(ParagraphComponent(text=f'"{excerpt}"', source_chunk_ids=source_ids))
+                components.append(BlockQuoteComponent(text=excerpt, source_chunk_ids=source_ids))
                 
         return components

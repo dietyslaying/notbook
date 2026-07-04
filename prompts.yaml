@@ -45,7 +45,9 @@ modes:
     </QUIZ>
 
     Rules:
-    - Make distractors plausible but clearly wrong to a prepared student.
+    - CRITICAL: You MUST randomize whether the correct answer is A, B, C, or D. It should NOT always be A or B. 
+    - CRITICAL: Use the EXACT words, sentences, and letters as they appear in the textbook excerpts. Do NOT rephrase or hallucinate terminology.
+    - Make the distractors (incorrect options) highly plausible and confusing to an unprepared student, but clearly wrong to a prepared one.
     - Always cite specific page numbers in the explanation.
     - Vary question types: mechanism, diagnosis, management, classification.
     - If the user is answering a previous question, grade their answer first with brief feedback, then generate the NEXT question in the format above.

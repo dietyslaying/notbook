@@ -130,6 +130,36 @@ class TelegramRichBackend:
                         latex = self._safe_escape(payload.get("latex", ""))
                         current_html_buffer += f"<code>{latex}</code>\n\n"
                         
+                    elif c_type == "block_quote":
+                        text = self._safe_escape(payload.get("text", ""))
+                        current_html_buffer += f"<blockquote>{text}</blockquote>\n\n"
+                        
+                    elif c_type == "details":
+                        title = self._safe_escape(payload.get("title", "Details"))
+                        text = self._safe_escape(payload.get("text", ""))
+                        current_html_buffer += f"<blockquote expandable><b>{title}</b>\n{text}</blockquote>\n\n"
+                        
+                    elif c_type == "spoiler":
+                        text = self._safe_escape(payload.get("text", ""))
+                        current_html_buffer += f"<tg-spoiler>{text}</tg-spoiler>\n\n"
+                        
+                    elif c_type == "figure":
+                        caption = self._safe_escape(payload.get("caption", "Figure"))
+                        current_html_buffer += f"🖼️ <b>[Figure: {caption}]</b>\n\n"
+                        
+                    elif c_type == "slideshow":
+                        title = self._safe_escape(payload.get("title", "Slideshow"))
+                        current_html_buffer += f"📽️ <b>[Slideshow: {title}]</b>\n\n"
+                        
+                    elif c_type == "video":
+                        title = self._safe_escape(payload.get("title", "Video"))
+                        current_html_buffer += f"▶️ <b>[Video: {title}]</b>\n\n"
+                        
+                    elif c_type == "audio":
+                        title = self._safe_escape(payload.get("title", "Audio"))
+                        current_html_buffer += f"🔊 <b>[Audio: {title}]</b>\n\n"
+
+                        
             elif instruction.event == RenderEvent.STREAM_COMPLETE:
                 pass # End of stream
                 
