@@ -110,6 +110,7 @@ class NotbookDocument(BaseModel):
     version: str = "1.0"
     title: str
     topic_category: Literal["disease", "drug", "anatomy", "procedure", "general"]
+    follow_up_questions: List[str] = Field(default_factory=list)
     blocks: List[Union[
         DefinitionBlock,
         ExplanationBlock,

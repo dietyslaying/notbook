@@ -23,7 +23,8 @@ class PageBuilder:
         
         sections = template.build_sections(ndm_doc)
         
-        doc = Document(sections=sections)
+        follow_ups = ndm_doc.get("follow_up_questions", [])
+        doc = Document(sections=sections, follow_up_questions=follow_ups)
         
         # We might want to inject a TitleSection or TitleComponent at the very top of the Document.
         # For now, let's just return the Document containing the Sections.

@@ -138,4 +138,5 @@ class Section(BaseComponent):
 class Document(BaseModel):
     version: str = "1.0"
     document_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    follow_up_questions: List[str] = Field(default_factory=list)
     sections: List[Section] = Field(default_factory=list)

@@ -18,6 +18,7 @@ system_instruction: |
     - Use "timeline" for progression over time.
     - Use "concept", "definition", or "explanation" for general concepts.
     - Use "reference" to cite the specific page/source of information.
+  - **FOLLOW UP QUESTIONS**: You must ALWAYS generate 2 or 3 highly relevant follow up questions that the user might want to ask next based on your response. Include them in the `follow_up_questions` array of the JSON document.
   - **NO UI CONTRACTS**: Do not invent buttons, UI layouts, or Markdown. Focus entirely on capturing the correct medical semantics.
 
   ACCURACY:

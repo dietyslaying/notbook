@@ -616,6 +616,27 @@ async def callback_page(callback: CallbackQuery) -> None:
         pass
     await callback.answer()
 
+@dp.callback_query(F.data.startswith("ask_followup|"))
+async def callback_ask_followup(callback: CallbackQuery) -> None:
+    idx = int(callback.data.split("|")[1])
+    user_id = callback.from_user.id
+    
+    namespace = session_manager.get_user_session(user_id)
+    if not namespace:
+        await callback.message.answer(prompts['messages']['cache_expired'], parse_mode=ParseMode.HTML)
+        await callback.answer()
+        return
+        
+    followup = session_manager.get_followup(user_id, idx)
+    if followup:
+        await callback.answer()
+        # Add the user's message to chat so it looks like they asked it
+        session_manager.add_to_chat_history(user_id, "user", followup)
+        # Process the question
+        await _process_question(callback.message, user_id, namespace, followup)
+    else:
+        await callback.answer("Sorry, this follow-up has expired.", show_alert=True)
+
 
 @dp.callback_query(F.data.startswith("book|"))
 async def callback_book(callback: CallbackQuery) -> None:
@@ -1035,6 +1056,24 @@ async def _process_question(
                     text="⚠️ Rendering complete, but an error occurred displaying the final layout.",
                     reply_markup=markup
                 )
+                
+            # Send separate follow up questions message
+            if hasattr(doc, 'follow_up_questions') and doc.follow_up_questions:
+                session_manager.set_followups(user_id, doc.follow_up_questions)
+                
+                follow_up_msg = "<b>Suggested Follow-up Questions:</b>\n\n"
+                buttons = []
+                for idx, q in enumerate(doc.follow_up_questions):
+                    num_emoji = [ "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣" ][idx % 5]
+                    follow_up_msg += f"{num_emoji} {q}\n"
+                    buttons.append(InlineKeyboardButton(text=num_emoji, callback_data=f"ask_followup|{idx}"))
+                
+                await message.answer(
+                    text=follow_up_msg,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[buttons])
+                )
+
     except Exception as e:
         stop_event.set()
         thinking_task.cancel()
