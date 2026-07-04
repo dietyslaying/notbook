@@ -1,19 +1,32 @@
 from interfaces import Document, WorkspaceType, Section, Component, IASchema, ButtonSpec
 
 class MenuWorkspace:
-    def generate_screen(self, topic: str, screen_id: str) -> Document:
+    def generate_screen(self, session, screen_id: str) -> Document:
+        import gemini_service
+        
         if screen_id == "books":
+            books = gemini_service.get_available_books(session.user_id)
+            
+            nav_buttons = []
+            for ns, display_name in books:
+                # Add a checkmark if this is the currently selected book
+                is_selected = session.metadata.get("namespace", "global|murtaghs") == ns
+                label = f"{'✅ ' if is_selected else '📘 '}{display_name}"
+                nav_buttons.append(ButtonSpec(label=label, callback_data=f"set_book|{ns}", tier=1))
+                
+            nav_buttons.append(ButtonSpec(label="⬅️ Back", callback_data="back", tier=2))
+            
             return Document(
                 topic="Books",
                 workspace_type=WorkspaceType.MENU,
                 sections=[
                     Section(section_id="books", kind="books", components=[
-                        Component(component_type="paragraph", payload={"text": "📚 <b>Books Library</b> is coming soon!"})
+                        Component(component_type="paragraph", payload={"text": "📚 <b>Library</b>\n\nSelect a medical textbook to use as the primary source for your workspaces:"})
                     ])
                 ],
                 ia_schema=IASchema(
                     workspace_type=WorkspaceType.MENU, topic="Books",
-                    nav_buttons=[ButtonSpec(label="⬅️ Back", callback_data="back", tier=1)]
+                    nav_buttons=nav_buttons
                 )
             )
         elif screen_id == "topics":

@@ -22,7 +22,7 @@ async def handle_start_command(
     session.current_state = BotState.MAIN_MENU
     await session_manager.update(session)
     
-    doc = menu_workspace.generate_screen(topic="Main Menu", screen_id="main")
+    doc = menu_workspace.generate_screen(session=session, screen_id="main")
     screen = renderer.render(doc)
     await message.answer(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
 
@@ -65,9 +65,40 @@ async def handle_text_message(
     loading_msg = await message.answer("🔄 <b>Generating workspace...</b>\n<i>Analyzing content...</i>")
     
     if intent.topic_type == WorkspaceType.DISEASE:
+        import asyncio
+        import time
+        from aiogram.exceptions import TelegramBadRequest
+        
         session.current_state = BotState.WORKSPACE_DISEASE_OVERVIEW
         await session_manager.update(session)
-        doc = disease_workspace.generate_screen(session=session, screen_id="overview")
+        
+        last_edit_time = 0
+        doc = None
+        
+        async for intermediate_doc in disease_workspace.generate_screen_stream(session=session, screen_id="overview"):
+            doc = intermediate_doc
+            current_time = time.time()
+            
+            # Throttle Telegram edits to once every 1.5 seconds to avoid 429 errors
+            if current_time - last_edit_time > 1.5:
+                screen = renderer.render(doc)
+                try:
+                    await loading_msg.edit_text(
+                        screen.html + "\n\n<i>(✍️ Generating...)</i>", 
+                        reply_markup=to_aiogram_keyboard(screen.keyboard)
+                    )
+                    last_edit_time = current_time
+                except TelegramBadRequest:
+                    # Ignore "message is not modified" errors
+                    pass
+                    
+        # Final render
+        if doc:
+            screen = renderer.render(doc)
+            try:
+                await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+            except TelegramBadRequest:
+                pass
         
     elif intent.topic_type == WorkspaceType.DRUG:
         session.current_state = BotState.WORKSPACE_DRUG_OVERVIEW

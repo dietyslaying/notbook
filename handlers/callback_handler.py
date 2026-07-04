@@ -29,6 +29,16 @@ async def handle_callback(
     if not session:
         return
         
+    # Intercept set_book
+    if data.startswith("set_book|"):
+        namespace = data.split("|", 1)[1]
+        session.metadata["namespace"] = namespace
+        await session_manager.update(session)
+        await callback_query.answer(f"Book selected: {namespace}")
+        
+        # Navigate back to main menu
+        data = "back"
+        
     # Transition State
     event = Event(event_type=EventType.EVT_CALLBACK_NAV, callback_data=data)
     transition = state_machine.transition(session.current_state, event, {})
@@ -59,7 +69,7 @@ async def handle_callback(
         elif session.workspace_type == WorkspaceType.PROCEDURE:
             doc = procedure_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.MENU:
-            doc = menu_workspace.generate_screen(topic="Main Menu", screen_id=screen_id)
+            doc = menu_workspace.generate_screen(session=session, screen_id=screen_id)
         else:
             return
             
