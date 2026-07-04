@@ -58,7 +58,7 @@ class TestHandlersContract:
         # Verify session was created
         mock_deps["session_manager"].create.assert_called_once()
         # Verify disease workspace was invoked
-        mock_deps["disease_workspace"].generate_screen.assert_called_once_with(topic="ADHD", screen_id="overview")
+        mock_deps["disease_workspace"].generate_screen.assert_called_once_with(session=mock_session, screen_id="overview")
         # Verify renderer was called
         mock_deps["renderer"].render.assert_called_once()
         # Verify message was replied to
@@ -93,6 +93,6 @@ class TestHandlersContract:
         # Verify session state pushed
         mock_deps["session_manager"].push_state.assert_called_once_with(mock_session, BotState.WORKSPACE_DISEASE_OVERVIEW)
         # Verify disease workspace was invoked for symptoms
-        mock_deps["disease_workspace"].generate_screen.assert_called_once_with(topic="ADHD", screen_id="symptoms")
+        mock_deps["disease_workspace"].generate_screen.assert_called_once_with(session=mock_session, screen_id="symptoms")
         # Verify message was edited in place
         mock_callback.message.edit_text.assert_called_once()

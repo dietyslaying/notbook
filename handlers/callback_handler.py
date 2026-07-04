@@ -36,9 +36,9 @@ async def handle_callback(
         screen_id = data.split(":")[-1] if ":" in data else data
         
         if session.workspace_type == WorkspaceType.DISEASE:
-            doc = disease_workspace.generate_screen(topic=session.topic, screen_id=screen_id)
+            doc = disease_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.DRUG:
-            doc = drug_workspace.generate_screen(topic=session.topic, screen_id=screen_id)
+            doc = drug_workspace.generate_screen(session=session, screen_id=screen_id)
         elif session.workspace_type == WorkspaceType.MENU:
             doc = menu_workspace.generate_screen(topic="Main Menu", screen_id="main")
         else:

@@ -27,13 +27,20 @@ except ImportError:
     pass
 logging.basicConfig(level=logging.INFO)
 
+from ia_generator.generator import IAGenerator
+from presentation_engine.engine import PresentationEngine
+
 # Dependency Injection Container
 intent_engine = IntentEngine()
 session_manager = SessionManager(store=InMemoryStore())
 state_machine = StateMachine()
+
+ia_generator = IAGenerator()
+presentation_engine = PresentationEngine()
+
 menu_workspace = MenuWorkspace()
-disease_workspace = DiseaseWorkspace()
-drug_workspace = DrugWorkspace()
+disease_workspace = DiseaseWorkspace(ia_generator, presentation_engine)
+drug_workspace = DrugWorkspace(ia_generator, presentation_engine)
 renderer = TelegramRenderer()
 
 async def on_start(message: Message):

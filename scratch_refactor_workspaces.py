@@ -1,6 +1,14 @@
+import os
+
+WORKSPACES = [
+    "disease.py", "drug.py", "case.py", "comparison.py",
+    "algorithm.py", "lab_test.py", "anatomy.py", "procedure.py"
+]
+
+TEMPLATE = """\
 from interfaces import Document, WorkspaceSession, IIAGenerator, IPresentationEngine, KnowledgeTree
 
-class AlgorithmWorkspace:
+class {class_name}:
     def __init__(self, ia_generator: IIAGenerator, presentation_engine: IPresentationEngine):
         self.ia = ia_generator
         self.pe = presentation_engine
@@ -23,3 +31,14 @@ class AlgorithmWorkspace:
             )
             
         return self.pe.generate_document(session.ia_schema, session.knowledge_tree, screen_id)
+"""
+
+def main():
+    for f in WORKSPACES:
+        name = f.split(".")[0].title().replace("_", "") + "Workspace"
+        content = TEMPLATE.format(class_name=name)
+        with open(f"workspaces/{f}", "w", encoding="utf-8") as file:
+            file.write(content)
+
+if __name__ == "__main__":
+    main()

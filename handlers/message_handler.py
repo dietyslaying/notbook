@@ -58,6 +58,12 @@ async def handle_text_message(
     if intent.intent_type == IntentType.TOPIC_OVERVIEW and intent.topic_type == WorkspaceType.DISEASE:
         session.current_state = BotState.WORKSPACE_DISEASE_OVERVIEW
         await session_manager.update(session)
-        doc = disease_workspace.generate_screen(topic=intent.topic, screen_id="overview")
+        
+        # Loading state
+        loading_msg = await message.answer("🔄 <b>Generating workspace...</b>\n<i>Analyzing content...</i>")
+        
+        doc = disease_workspace.generate_screen(session=session, screen_id="overview")
         screen = renderer.render(doc)
-        await message.answer(screen.html)
+        
+        await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+
