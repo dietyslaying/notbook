@@ -47,17 +47,7 @@ class TelegramRichBackend:
                         current_html_buffer += "━━━━━━━━━━━━━━━━━━\n\n"
                         
                     elif c_type == "metadata_card":
-                        source = self._safe_escape(payload.get("source_textbook", "Medical Knowledge Base"))
-                        chapter = self._safe_escape(payload.get("chapter", ""))
-                        rt = payload.get("reading_time_mins")
-                        
-                        current_html_buffer += f"📖 <b>Source:</b> {source}\n"
-                        if chapter:
-                            current_html_buffer += f"📑 <b>Chapter:</b> {chapter}\n"
-                        if rt:
-                            current_html_buffer += f"⏱ <b>Read Time:</b> ~{rt} min\n"
-                        current_html_buffer += "\n"
-
+                        current_html_buffer += "<i>Based on Provided Study Material...</i>\n\n"
                     elif c_type == "tldr":
                         text = self._safe_escape(payload.get("text", ""))
                         current_html_buffer += f"💡 <b>TL;DR:</b> {text}\n\n"
