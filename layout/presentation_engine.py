@@ -1,13 +1,14 @@
 from typing import Dict, Any, List
 from layout.components import (
-    BaseComponent, TitleComponent, MetadataComponent, ParagraphComponent, 
+    BaseComponent, TitleComponent, MetadataCardComponent, ParagraphComponent, 
     ChecklistComponent, TableComponent, MathComponent, TimelineComponent, 
-    CalloutComponent, DividerComponent
+    CalloutComponent, DividerComponent, FactGridComponent, ReferenceCardComponent
 )
 
 class PresentationEngine:
     """
     Applies the Design Language rules to map Semantic NDM blocks into platform-agnostic Layout Components.
+    Enforces rules like max 4 facts per grid, no generic paragraphs for symptoms, etc.
     """
     
     def apply_rules(self, block: Dict[str, Any]) -> List[BaseComponent]:
@@ -22,12 +23,10 @@ class PresentationEngine:
         if b_type == "disease_symptoms":
             symptoms = block.get("symptoms", [])
             if symptoms:
-                # Rule: Checklists max 6 visible items before collapsing
-                supports_collapse = len(symptoms) > 6
                 components.append(ChecklistComponent(
                     items=symptoms, 
                     source_chunk_ids=source_ids,
-                    supports_collapse=supports_collapse
+                    supports_collapse=len(symptoms) > 5
                 ))
                 
         elif b_type == "treatment":
@@ -67,7 +66,6 @@ class PresentationEngine:
             
             contraindications = block.get("contraindications", [])
             if contraindications:
-                # Rule: Contraindications go into warnings
                 for c in contraindications:
                     components.append(CalloutComponent(variant="warning", text=f"Contraindication: {c}", source_chunk_ids=source_ids))
                     
@@ -112,6 +110,8 @@ class PresentationEngine:
             if details:
                 components.append(ChecklistComponent(items=details, source_chunk_ids=source_ids))
 
+        # References are handled directly by templates now using ReferenceCardComponent,
+        # but if we get a raw one, map it generically:
         elif b_type == "reference":
             source = block.get("source", "")
             page = block.get("page")

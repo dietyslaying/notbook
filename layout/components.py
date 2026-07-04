@@ -1,6 +1,6 @@
 import uuid
 from enum import Enum
-from typing import List, Optional, Literal, Any, Dict
+from typing import List, Optional, Literal, Any, Dict, Union
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -43,26 +43,49 @@ class BaseComponent(BaseModel):
     state: ComponentState = Field(default_factory=ComponentState)
     source_chunk_ids: List[str] = Field(default_factory=list)
     
-    # Capabilities (override in subclasses if needed)
     supports_streaming: bool = False
     supports_collapse: bool = False
     supports_animation: bool = False
     supports_export: bool = True
 
 # ---------------------------------------------------------------------------
-# Core Layout Components
+# High-Level Semantic Components
 # ---------------------------------------------------------------------------
 
-class TitleComponent(BaseComponent):
-    type: Literal["title"] = "title"
-    text: str
-    icon: Optional[str] = None
-    level: int = 1
+class HeaderCardComponent(BaseComponent):
+    type: Literal["header_card"] = "header_card"
+    title: str
+    icon: str = "📚"
+    subtitle: Optional[str] = None
 
-class MetadataComponent(BaseComponent):
-    type: Literal["metadata"] = "metadata"
+class MetadataCardComponent(BaseComponent):
+    type: Literal["metadata_card"] = "metadata_card"
+    source_textbook: str
+    chapter: Optional[str] = None
     reading_time_mins: Optional[int] = None
     tags: List[str] = Field(default_factory=list)
+
+class TLDRComponent(BaseComponent):
+    type: Literal["tldr"] = "tldr"
+    text: str
+
+class FactGridComponent(BaseComponent):
+    type: Literal["fact_grid"] = "fact_grid"
+    title: str = "QUICK FACTS"
+    facts: Dict[str, str] # e.g. {"Prevalence": "5-7%", "Genetics": "Highly heritable"}
+
+class SectionHeaderComponent(BaseComponent):
+    type: Literal["section_header"] = "section_header"
+    title: str
+    icon: Optional[str] = None
+
+class ReferenceCardComponent(BaseComponent):
+    type: Literal["reference_card"] = "reference_card"
+    citations: List[str]
+
+# ---------------------------------------------------------------------------
+# Standard Layout Components
+# ---------------------------------------------------------------------------
 
 class ParagraphComponent(BaseComponent):
     type: Literal["paragraph"] = "paragraph"
@@ -93,6 +116,7 @@ class CalloutComponent(BaseComponent):
     type: Literal["callout"] = "callout"
     variant: Literal["clinical_pearl", "warning", "memory_aid", "info"]
     text: str
+    title: Optional[str] = None
 
 class DividerComponent(BaseComponent):
     type: Literal["divider"] = "divider"

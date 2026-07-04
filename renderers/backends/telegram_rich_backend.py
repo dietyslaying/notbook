@@ -7,7 +7,7 @@ from engine.interaction_engine import InteractionTree
 class TelegramRichBackend:
     """
     Platform-specific backend for Telegram.
-    Translates the agnostic RenderEvents and InteractionTree into Telegram HTML and Inline Keyboards.
+    Translates the agnostic RenderEvents and InteractionTree into highly stylized Telegram HTML and Inline Keyboards.
     """
     
     def _safe_escape(self, text: Any) -> str:
@@ -18,7 +18,7 @@ class TelegramRichBackend:
     def render_streaming_plan(self, plan: StreamingPlan) -> str:
         """
         Executes a StreamingPlan synchronously for now (placeholder for real streaming).
-        Returns the final HTML string.
+        Returns the final formatted HTML string.
         """
         current_html_buffer = ""
         
@@ -26,17 +26,65 @@ class TelegramRichBackend:
             if instruction.event == RenderEvent.ADD:
                 data = instruction.data or {}
                 
-                # Render Section Header
+                # Sections no longer render their generic == TITLE == header unless explicitly requested.
+                # SectionHeaderComponent handles this explicitly now.
                 if "kind" in data:
-                    kind = self._safe_escape(data.get("kind", ""))
-                    current_html_buffer += f"<b>== {kind.upper()} ==</b>\n\n"
+                    pass
                     
                 # Render Specific Components
                 elif "type" in data:
                     c_type = data["type"]
                     payload = data.get("payload", {})
                     
-                    if c_type == "title":
+                    if c_type == "header_card":
+                        icon = payload.get("icon", "📚")
+                        title = self._safe_escape(payload.get("title", ""))
+                        subtitle = self._safe_escape(payload.get("subtitle", ""))
+                        current_html_buffer += "━━━━━━━━━━━━━━━━━━\n"
+                        current_html_buffer += f"{icon} <b>{title.upper()}</b>\n"
+                        if subtitle:
+                            current_html_buffer += f"<i>{subtitle}</i>\n"
+                        current_html_buffer += "━━━━━━━━━━━━━━━━━━\n\n"
+                        
+                    elif c_type == "metadata_card":
+                        source = self._safe_escape(payload.get("source_textbook", "Medical Knowledge Base"))
+                        chapter = self._safe_escape(payload.get("chapter", ""))
+                        rt = payload.get("reading_time_mins")
+                        
+                        current_html_buffer += f"📖 <b>Source:</b> {source}\n"
+                        if chapter:
+                            current_html_buffer += f"📑 <b>Chapter:</b> {chapter}\n"
+                        if rt:
+                            current_html_buffer += f"⏱ <b>Read Time:</b> ~{rt} min\n"
+                        current_html_buffer += "\n"
+
+                    elif c_type == "tldr":
+                        text = self._safe_escape(payload.get("text", ""))
+                        current_html_buffer += f"💡 <b>TL;DR:</b> {text}\n\n"
+                        
+                    elif c_type == "fact_grid":
+                        title = self._safe_escape(payload.get("title", "QUICK FACTS"))
+                        facts = payload.get("facts", {})
+                        
+                        current_html_buffer += f"📊 <b>{title}</b>\n"
+                        for k, v in facts.items():
+                            current_html_buffer += f" 🔹 <b>{self._safe_escape(k)}:</b> {self._safe_escape(v)}\n"
+                        current_html_buffer += "\n"
+
+                    elif c_type == "section_header":
+                        title = self._safe_escape(payload.get("title", ""))
+                        icon = payload.get("icon", "🔹")
+                        current_html_buffer += f"— {icon} <b>{title.upper()}</b> —\n"
+                        
+                    elif c_type == "reference_card":
+                        citations = payload.get("citations", [])
+                        if citations:
+                            current_html_buffer += "📚 <b>References</b>\n"
+                            for i, c in enumerate(citations, 1):
+                                current_html_buffer += f"  <pre>{i}. {self._safe_escape(c)}</pre>\n"
+                            current_html_buffer += "\n"
+                            
+                    elif c_type == "title": # legacy generic title
                         icon = payload.get("icon", "")
                         text = self._safe_escape(payload.get("text", ""))
                         current_html_buffer += f"<b>{icon} {text}</b>\n\n"
@@ -48,7 +96,7 @@ class TelegramRichBackend:
                     elif c_type == "checklist":
                         items = payload.get("items", [])
                         for item in items:
-                            current_html_buffer += f"• {self._safe_escape(item)}\n"
+                            current_html_buffer += f" • {self._safe_escape(item)}\n"
                         current_html_buffer += "\n"
                         
                     elif c_type == "table":
@@ -58,25 +106,26 @@ class TelegramRichBackend:
                             current_html_buffer += f"<b>{self._safe_escape(headers[0])}</b>\n"
                         for row in rows:
                             if len(row) == 3:
-                                current_html_buffer += f"• {self._safe_escape(row[0])}: {self._safe_escape(row[1])} vs {self._safe_escape(row[2])}\n"
+                                current_html_buffer += f" • {self._safe_escape(row[0])}: {self._safe_escape(row[1])} vs {self._safe_escape(row[2])}\n"
                             elif len(row) == 2:
-                                current_html_buffer += f"• {self._safe_escape(row[0])}: {self._safe_escape(row[1])}\n"
+                                current_html_buffer += f" • {self._safe_escape(row[0])}: {self._safe_escape(row[1])}\n"
                         current_html_buffer += "\n"
                         
                     elif c_type == "callout":
                         variant = payload.get("variant", "info")
                         text = self._safe_escape(payload.get("text", ""))
+                        title = self._safe_escape(payload.get("title", ""))
                         
                         prefix = "💡"
                         if variant == "clinical_pearl":
-                            prefix = "🟠"
+                            prefix = "🟠 PEARL:"
                         elif variant == "warning":
-                            prefix = "🔴"
+                            prefix = "🔴 WARNING:"
                         elif variant == "memory_aid":
-                            prefix = "🔵"
+                            prefix = "🔵 MNEMONIC:"
                             
-                        # We use blockquote for callouts in Telegram
-                        current_html_buffer += f"<blockquote>{prefix} {text}</blockquote>\n\n"
+                        block_title = f"{prefix} {title}" if title else prefix
+                        current_html_buffer += f"<blockquote><b>{block_title}</b> {text}</blockquote>\n\n"
                         
                     elif c_type == "divider":
                         current_html_buffer += "──────────\n\n"
@@ -101,18 +150,22 @@ class TelegramRichBackend:
         Translates the InteractionTree into a Telegram InlineKeyboardMarkup dict.
         """
         inline_keyboard = []
-        # Max 4 visible actions based on Design Language
-        actions_to_render = interaction_tree.actions[:4]
         
-        # Build 1 button per row for simplicity
+        # We allow up to 4 actions total, built as rows of up to 2 buttons
+        actions_to_render = [a for a in interaction_tree.actions if not a.disabled][:4]
+        
+        row = []
         for action in actions_to_render:
-            if not action.disabled:
-                inline_keyboard.append([
-                    {
-                        "text": action.label,
-                        "callback_data": action.action_data
-                    }
-                ])
+            row.append({
+                "text": action.label,
+                "callback_data": action.action_data
+            })
+            if len(row) == 2:
+                inline_keyboard.append(row)
+                row = []
+                
+        if row:
+            inline_keyboard.append(row)
                 
         if not inline_keyboard:
             return None

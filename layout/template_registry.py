@@ -3,6 +3,8 @@ from layout.templates.base import PageTemplate
 from layout.templates.disease import DiseaseTemplate
 from layout.templates.drug import DrugTemplate
 from layout.templates.general import GeneralTemplate
+from layout.templates.clinical_case import ClinicalCaseTemplate
+from layout.templates.comparison import ComparisonTemplate
 from layout.presentation_engine import PresentationEngine
 
 class TemplateRegistry:
@@ -17,8 +19,9 @@ class TemplateRegistry:
         self._templates = {
             "disease": DiseaseTemplate(self.presentation_engine),
             "drug": DrugTemplate(self.presentation_engine),
+            "clinical_case": ClinicalCaseTemplate(self.presentation_engine),
+            "comparison": ComparisonTemplate(self.presentation_engine),
             "general": GeneralTemplate(self.presentation_engine)
-            # Future templates: procedure, anatomy, clinical_case, etc.
         }
         
     def get_template(self, category: str) -> PageTemplate:
