@@ -1,5 +1,5 @@
 from typing import Dict, Any
-from layout.components import Document, TitleComponent
+from layout.components import Document
 from layout.template_registry import TemplateRegistry
 
 class PageBuilder:
