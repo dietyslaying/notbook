@@ -18,8 +18,11 @@ from renderer.telegram_renderer import TelegramRenderer
 from handlers.message_handler import handle_text_message
 from handlers.callback_handler import handle_callback
 
-# Load environment variables
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 logging.basicConfig(level=logging.INFO)
 
 # Dependency Injection Container
