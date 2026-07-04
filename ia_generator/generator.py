@@ -8,8 +8,8 @@ class IAGenerator(IIAGenerator):
         workspace_type: WorkspaceType,
         user_mode: UserMode,
     ) -> IASchema:
-        
-        allowed = get_allowed_sections(workspace_type.value)
+        wt_value = workspace_type.value if hasattr(workspace_type, "value") else workspace_type
+        allowed = get_allowed_sections(wt_value)
         sections = []
         nav_buttons = []
         

@@ -34,7 +34,15 @@ async def handle_callback(
         namespace = data.split("|", 1)[1]
         session.metadata["namespace"] = namespace
         await session_manager.update(session)
-        await callback_query.answer(f"Book selected: {namespace}")
+        
+        # Send an actual chat message to the user confirming the selection
+        await callback_query.message.answer(
+            f"✅ <b>Book Selected:</b> <code>{namespace}</code>\n\n"
+            f"You can now type the name of any disease or drug (e.g. <i>Diabetes</i> or <i>Aspirin</i>) "
+            f"to generate a workspace based on this book!"
+        )
+        
+        await callback_query.answer("Book selected successfully!")
         
         # Navigate back to main menu
         data = "back"
