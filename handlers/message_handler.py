@@ -1,6 +1,7 @@
 import logging
 from interfaces import IntentType, WorkspaceType, BotState, UserMode
 from handlers.keyboard_utils import to_aiogram_keyboard
+from aiogram.exceptions import TelegramBadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -139,5 +140,8 @@ async def handle_text_message(
         return
 
     screen = renderer.render(doc)
-    await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+    try:
+        await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+    except TelegramBadRequest:
+        pass
 
