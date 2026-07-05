@@ -168,7 +168,9 @@ class IntentResult(BaseModel):
 
 class Chunk(BaseModel):
     chunk_id: str
-    text: str
+    chunk_type: str = "text"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    text: str = ""
     textbook: str
     edition: Optional[str] = None
     chapter_number: Optional[str] = None

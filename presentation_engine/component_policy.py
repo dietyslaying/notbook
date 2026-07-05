@@ -1,20 +1,25 @@
 from interfaces import Component, Chunk
 
-def select_component(section_id: str, chunks: list[Chunk]) -> Component:
+def build_components(section_id: str, chunks: list[Chunk]) -> list[Component]:
     """
-    Selects the appropriate component based on section_id and chunks.
-    Rule: length > 10 -> ExpandableList. Otherwise Checklist.
-    If it's just a paragraph, use Paragraph.
+    Transforms Semantic Blocks (Chunks) into Strongly Typed Components.
     """
     if not chunks:
-        return Component(component_type="paragraph", payload={"text": "No content found."})
+        return [Component(component_type="paragraph", payload={"text": "No content found."})]
         
-    if section_id in ("symptoms", "causes", "complications"):
-        if len(chunks) > 10:
-            return Component(component_type="expandable", payload={"items": [c.text for c in chunks]})
+    components = []
+    for c in chunks:
+        ctype = c.chunk_type.lower()
+        
+        if ctype == "comparison":
+            components.append(Component(component_type="comparison", payload=c.payload))
+        elif ctype in ("reference", "citation"):
+            components.append(Component(component_type="reference", payload=c.payload))
+        elif ctype == "text":
+            components.append(Component(component_type="paragraph", payload={"text": c.text}))
         else:
-            return Component(component_type="checklist", payload={"items": [c.text for c in chunks]})
+            # Fallback for general semantic blocks like disease_symptoms, treatment, etc.
+            text = str(c.payload.get("content") or c.payload.get("definition") or c.payload.get("text") or c.payload)
+            components.append(Component(component_type="paragraph", payload={"text": text}))
             
-    # Default to paragraph combining all texts
-    text = " ".join([c.text for c in chunks])
-    return Component(component_type="paragraph", payload={"text": text})
+    return components

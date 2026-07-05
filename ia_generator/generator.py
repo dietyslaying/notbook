@@ -14,25 +14,36 @@ class IAGenerator(IIAGenerator):
         nav_buttons = []
         
         for idx, sec_id in enumerate(allowed):
-            has_content = True
+            mapped_chunk_ids = []
             
-            # Simple content heuristic: overview and references always included.
-            # Others are included only if chunks text roughly contain the section keyword 
-            # OR we simply have chunks (basic implementation for now)
-            if sec_id not in ("overview", "references", "presentation", "main_menu"):
-                if knowledge_tree.chunks:
-                    # check if sec_id is in any chunk text (simplified mapping)
-                    # we do this just to pass the contract tests that require empty sections to be omitted.
-                    has_content = any(sec_id.lower() in c.text.lower() or c.chunk_id == sec_id for c in knowledge_tree.chunks)
-                else:
-                    has_content = False
-                    
-            if has_content:
+            for c in knowledge_tree.chunks:
+                ctype = c.chunk_type.lower()
+                
+                # Intelligent mapping of block types to sections
+                if sec_id == "symptoms" and ("symptom" in ctype or "clinical_case" in ctype):
+                    mapped_chunk_ids.append(c.chunk_id)
+                elif sec_id == "treatment" and ("treatment" in ctype or "drug" in ctype or "management" in ctype):
+                    mapped_chunk_ids.append(c.chunk_id)
+                elif sec_id == "references" and ("reference" in ctype or "citation" in ctype):
+                    mapped_chunk_ids.append(c.chunk_id)
+                elif sec_id == "complications" and "complication" in ctype:
+                    mapped_chunk_ids.append(c.chunk_id)
+                elif sec_id == "overview":
+                    # Overview catches general concepts, comparisons, and any unmapped blocks
+                    if not any(k in ctype for k in ["symptom", "clinical_case", "treatment", "drug", "management", "reference", "citation", "complication"]):
+                        mapped_chunk_ids.append(c.chunk_id)
+                elif sec_id == ctype:
+                    # Direct match
+                    mapped_chunk_ids.append(c.chunk_id)
+
+            has_content = bool(mapped_chunk_ids)
+            
+            if has_content or sec_id in ("overview", "main_menu"):
                 sections.append(SectionSpec(
                     section_id=sec_id,
                     section_type=sec_id,
-                    has_content=True,
-                    content_chunks=[c.chunk_id for c in knowledge_tree.chunks],
+                    has_content=has_content,
+                    content_chunks=mapped_chunk_ids,
                     order=idx
                 ))
                 
