@@ -42,18 +42,31 @@ class DiseaseWorkspace:
                     # Convert blocks to Chunk objects
                     from interfaces import Chunk
                     new_chunks = []
-                    for b in blocks:
-                        # Extract the type as chunk_id, or fallback to something generic
-                        c_type = b.get("type", "unknown")
-                        # For the text, dump the whole dict if it's complex, or extract text
-                        text_val = str(b.get("text", b)) if "text" in b else str(b)
-                        
+                    
+                    if not blocks and is_complete and full_json.strip() and not full_json.strip().startswith("{"):
+                        # Handle raw text fallback (like Pinecone "not found" error messages)
                         new_chunks.append(Chunk(
-                            chunk_id=c_type,
-                            text=text_val,
+                            chunk_id="overview",
+                            text=full_json.strip(),
                             textbook=namespace,
                             retrieval_score=1.0
                         ))
+                    else:
+                        for b in blocks:
+                            # Extract the type as chunk_id, or fallback to something generic
+                            c_type = b.get("type", "unknown")
+                            # For the text, dump the whole dict if it's complex, or extract text
+                            if isinstance(b, dict):
+                                text_val = str(b.get("content") or b.get("definition") or b.get("text") or b)
+                            else:
+                                text_val = str(b)
+                            
+                            new_chunks.append(Chunk(
+                                chunk_id=c_type,
+                                text=text_val,
+                                textbook=namespace,
+                                retrieval_score=1.0
+                            ))
                         
                     session.knowledge_tree.chunks = new_chunks
                     
