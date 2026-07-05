@@ -178,3 +178,105 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
     except Exception as e:
         logger.error(f"RAG Inference failed: {e}")
         raise e
+
+
+async def generate_quiz_questions(context_text: str, count: int) -> list:
+    import asyncio
+    from pydantic import BaseModel, Field
+    
+    class QuizOptionSchema(BaseModel):
+        position: str = Field(description="A, B, C, or D")
+        text: str
+        is_correct: bool
+        
+    class QuizQuestionSchema(BaseModel):
+        question_text: str
+        options: list[QuizOptionSchema]
+        correct_position: str
+        explanation: str
+
+    class QuizSessionSchema(BaseModel):
+        questions: list[QuizQuestionSchema]
+        
+    system_msg = prompts['system_instruction'] + "\n\n" + prompts.get('modes', {}).get('quiz_gen', "QUIZ MODE: Generate multiple choice questions.")
+    
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text=f"Generate {count} distinct quiz questions based on the following excerpts:\n\n{context_text}")]
+        )
+    ]
+    
+    gemini_config = types.GenerateContentConfig(
+        system_instruction=system_msg,
+        temperature=0.4,
+        response_mime_type="application/json",
+        response_schema=QuizSessionSchema
+    )
+    
+    global current_client_idx
+    client = clients[current_client_idx]
+    
+    def _gen():
+        return client.models.generate_content(
+            model=config['llm']['model_name'],
+            contents=contents,
+            config=gemini_config
+        )
+        
+    try:
+        response = await asyncio.to_thread(_gen)
+        import json
+        data = json.loads(response.text)
+        return data.get("questions", [])
+    except Exception as e:
+        logger.error(f"Quiz generation failed: {e}")
+        return []
+
+
+async def generate_flashcards(context_text: str, count: int) -> list:
+    import asyncio
+    from pydantic import BaseModel, Field
+    
+    class FlashcardSchema(BaseModel):
+        front: str
+        back_points: list[str]
+        memory_tip: str = Field(default=None)
+
+    class FlashcardDeckSchema(BaseModel):
+        cards: list[FlashcardSchema]
+        
+    system_msg = prompts['system_instruction'] + "\n\n" + prompts.get('modes', {}).get('flashcard_gen', "FLASHCARD MODE: Generate flashcards.")
+    
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text=f"Generate {count} flashcards based on the following excerpts:\n\n{context_text}")]
+        )
+    ]
+    
+    gemini_config = types.GenerateContentConfig(
+        system_instruction=system_msg,
+        temperature=0.4,
+        response_mime_type="application/json",
+        response_schema=FlashcardDeckSchema
+    )
+    
+    global current_client_idx
+    client = clients[current_client_idx]
+    
+    def _gen():
+        return client.models.generate_content(
+            model=config['llm']['model_name'],
+            contents=contents,
+            config=gemini_config
+        )
+        
+    try:
+        response = await asyncio.to_thread(_gen)
+        import json
+        data = json.loads(response.text)
+        return data.get("cards", [])
+    except Exception as e:
+        logger.error(f"Flashcard generation failed: {e}")
+        return []

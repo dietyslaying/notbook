@@ -58,9 +58,45 @@ class MenuWorkspace:
                 )
             )
             
+        elif screen_id == "bookmarks":
+            from session_manager.bookmark_store import BookmarkStore
+            store = BookmarkStore()
+            bookmarks = store.get_bookmarks(session.user_id)
+            
+            nav_buttons = []
+            components = []
+            
+            if not bookmarks:
+                components.append(Component(component_type="paragraph", payload={"text": "🔖 <b>Bookmarks</b>\n\nYou haven't saved any bookmarks yet."}))
+            else:
+                components.append(Component(component_type="paragraph", payload={"text": "🔖 <b>Bookmarks</b>\n\nSelect a bookmark to jump directly to it:"}))
+                for i, b in enumerate(bookmarks):
+                    label = f"{b.topic} ({b.screen_id.title()})"
+                    # Since we don't have a direct workspace jump via callback yet (other than raw text),
+                    # We will output this as a nav button that sets the session. Wait, if they click a bookmark, we need to rebuild that session!
+                    # For now, just render them in the text.
+                    nav_buttons.append(ButtonSpec(
+                        label=label[:20],
+                        callback_data=f"bookmark_jump|{i}",
+                        tier=1
+                    ))
+            
+            nav_buttons.append(ButtonSpec(label="⬅️ Back", callback_data="back", tier=2))
+            
+            return Document(
+                topic="Bookmarks",
+                workspace_type=WorkspaceType.MENU,
+                sections=[Section(section_id="bookmarks", kind="bookmarks", components=components)],
+                ia_schema=IASchema(
+                    workspace_type=WorkspaceType.MENU, topic="Bookmarks",
+                    nav_buttons=nav_buttons
+                )
+            )
+            
         nav_buttons = [
             ButtonSpec(label="📚 Books", callback_data="nav:books", tier=1),
-            ButtonSpec(label="📝 Topics", callback_data="nav:topics", tier=1),
+            ButtonSpec(label="🔖 Bookmarks", callback_data="nav:bookmarks", tier=1),
+            ButtonSpec(label="📝 Topics", callback_data="nav:topics", tier=2),
             ButtonSpec(label="⚙️ Settings", callback_data="nav:settings", tier=2),
         ]
             

@@ -47,6 +47,94 @@ async def handle_callback(
         # Navigate back to main menu
         data = "back"
         
+    # Intercept bookmark
+    if data == "bookmark:save":
+        from session_manager.bookmark_store import BookmarkStore
+        store = BookmarkStore()
+        
+        # Save the topic, workspace type, and current screen (extracted from current state)
+        screen_id = session.current_state.name.split("_")[-1].lower()
+        if screen_id in ["overview", "symptoms", "treatment", "diagnosis", "presentation", "findings", "mechanism", "dosage"]:
+            # Valid screen
+            pass
+        else:
+            screen_id = "overview"
+            
+        store.add_bookmark(
+            user_id=user_id,
+            topic=session.topic,
+            workspace_type=session.workspace_type.value,
+            screen_id=screen_id
+        )
+        await callback_query.answer(f"🔖 Bookmark saved for {session.topic}!")
+        return
+        
+    # Intercept bookmark jump
+    if data.startswith("bookmark_jump|"):
+        idx = int(data.split("|")[1])
+        from session_manager.bookmark_store import BookmarkStore
+        store = BookmarkStore()
+        bookmarks = store.get_bookmarks(user_id)
+        if 0 <= idx < len(bookmarks):
+            b = bookmarks[idx]
+            session.topic = b.topic
+            session.workspace_type = WorkspaceType(b.workspace_type)
+            session.knowledge_tree = None
+            session.ia_schema = None
+            await session_manager.update(session)
+            
+            # Map workspace type to workspace object and BotState
+            workspace_map = {
+                WorkspaceType.DISEASE: (disease_workspace, BotState.WORKSPACE_DISEASE_OVERVIEW),
+                WorkspaceType.DRUG: (drug_workspace, BotState.WORKSPACE_DRUG_OVERVIEW),
+                WorkspaceType.CASE: (case_workspace, BotState.WORKSPACE_CASE_PRESENTATION),
+                WorkspaceType.COMPARISON: (comparison_workspace, BotState.WORKSPACE_COMPARISON_OVERVIEW),
+                WorkspaceType.ALGORITHM: (algorithm_workspace, BotState.WORKSPACE_ALGORITHM_OVERVIEW),
+                WorkspaceType.LAB_TEST: (lab_test_workspace, BotState.WORKSPACE_LAB_OVERVIEW),
+                WorkspaceType.ANATOMY: (anatomy_workspace, BotState.LOADING),
+                WorkspaceType.PROCEDURE: (procedure_workspace, BotState.LOADING),
+            }
+            
+            if session.workspace_type in workspace_map:
+                workspace, base_state = workspace_map[session.workspace_type]
+                session.current_state = BotState(f"WORKSPACE_{session.workspace_type.name}_{b.screen_id.upper()}")
+                try:
+                    BotState(session.current_state)
+                except ValueError:
+                    session.current_state = base_state
+                    
+                await session_manager.update(session)
+                
+                # Stream the new workspace
+                import time
+                last_edit_time = 0
+                doc = None
+                async for intermediate_doc in workspace.generate_screen_stream(session=session, screen_id=b.screen_id):
+                    doc = intermediate_doc
+                    current_time = time.time()
+                    if current_time - last_edit_time > 1.5:
+                        screen = renderer.render(doc)
+                        try:
+                            await callback_query.message.edit_text(
+                                screen.html + "\n\n<i>(✍️ Loading Bookmark...)</i>",
+                                reply_markup=to_aiogram_keyboard(screen.keyboard)
+                            )
+                            last_edit_time = current_time
+                        except TelegramBadRequest:
+                            pass
+                
+                if doc:
+                    screen = renderer.render(doc)
+                    try:
+                        await callback_query.message.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+                    except TelegramBadRequest:
+                        pass
+                await callback_query.answer("Jumped to bookmark!")
+                return
+        
+        await callback_query.answer("Bookmark not found.")
+        return
+        
     # Transition State
     event = Event(event_type=EventType.EVT_CALLBACK_NAV, callback_data=data)
     transition = state_machine.transition(session.current_state, event, {})

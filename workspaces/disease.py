@@ -33,6 +33,9 @@ class DiseaseWorkspace:
             
             try:
                 parsed = parse_partial_json(full_json)
+                # Validate semantic blocks with NDMValidator
+                from ndm_validator import NDMValidator
+                parsed = NDMValidator().validate(parsed)
                 blocks = parsed.get("blocks", [])
                 
                 # Check if a new block was added or if it's the final chunk

@@ -66,6 +66,14 @@ class IAGenerator(IIAGenerator):
                     tier=1 if idx < 4 else 2
                 ))
                 
+        # Universal Bookmark button
+        if workspace_type != WorkspaceType.MENU:
+            nav_buttons.append(ButtonSpec(
+                label="🔖 Bookmark",
+                callback_data="bookmark:save",
+                tier=3
+            ))
+                
         return IASchema(
             workspace_type=workspace_type,
             topic=knowledge_tree.topic,
