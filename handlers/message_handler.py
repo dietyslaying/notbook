@@ -53,13 +53,20 @@ async def handle_text_message(
         await message.answer("I couldn't understand that. Try asking about a disease or drug.")
         return
 
-    # 2. Create session
-    session = await session_manager.create(
-        user_id=user_id,
-        topic=intent.topic,
-        workspace_type=intent.topic_type,
-        user_mode=UserMode.STUDENT
-    )
+    # 2. Get or create session
+    session = await session_manager.get(user_id)
+    if not session:
+        session = await session_manager.create(
+            user_id=user_id,
+            topic=intent.topic,
+            workspace_type=intent.topic_type,
+            user_mode=UserMode.STUDENT
+        )
+    else:
+        session.topic = intent.topic
+        session.workspace_type = intent.topic_type
+        session.knowledge_tree = None
+        session.ia_schema = None
     
     # 3. Handle specific intent
     # Loading state
