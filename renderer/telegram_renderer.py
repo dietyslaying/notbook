@@ -7,137 +7,148 @@ logger = logging.getLogger(__name__)
 
 class TelegramRenderer(IRenderer):
     def render(self, document: Document) -> TelegramScreen:
-        html_lines = []
+        messages = []
         
-        # Add topic header
+        # Add topic header as first message (or combined with first component)
         topic = html.escape(document.topic) if document.topic else ""
-        if topic:
-            html_lines.append(f"<b>{topic}</b>\n")
-            
+        header = f"<b>{topic}</b>\n\n" if topic else ""
+        
+        is_first = True
+        
         # Render sections
         for section in document.sections:
             for comp in section.components:
                 try:
+                    comp_html = ""
+                    if is_first and header:
+                        comp_html += header
+                        is_first = False
+                        
                     if comp.component_type == "paragraph":
                         text = html.escape(comp.payload.get("text", ""))
-                        html_lines.append(f"{text}\n")
+                        comp_html += f"{text}"
                     elif comp.component_type == "explanation":
                         topic = html.escape(comp.payload.get("topic", ""))
                         content = html.escape(comp.payload.get("content", ""))
-                        html_lines.append(f"<b>{topic}</b>\n{content}\n")
+                        comp_html += f"<b>{topic}</b>\n\n{content}"
                     elif comp.component_type == "checklist":
                         heading = html.escape(comp.payload.get("heading", ""))
                         if heading:
-                            html_lines.append(f"<b>{heading}</b>")
+                            comp_html += f"<b>{heading}</b>\n\n"
                         items = comp.payload.get("items", [])
                         for item in items:
                             text = html.escape(item)
-                            html_lines.append(f"• {text}")
-                        html_lines.append("")
+                            comp_html += f"• {text}\n\n"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "treatment":
                         condition = html.escape(comp.payload.get("condition", ""))
-                        html_lines.append(f"💊 <b>Treatment: {condition}</b>")
+                        comp_html += f"💊 <b>Treatment: {condition}</b>\n\n"
                         treatments = comp.payload.get("treatments", [])
                         for trt in treatments:
-                            html_lines.append(f"• {html.escape(trt)}")
+                            comp_html += f"• {html.escape(trt)}\n\n"
                         notes = comp.payload.get("notes")
                         if notes:
-                            html_lines.append(f"<i>Note: {html.escape(notes)}</i>")
-                        html_lines.append("")
+                            comp_html += f"<blockquote><i>Note: {html.escape(notes)}</i></blockquote>"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "drug_card":
                         drug_name = html.escape(comp.payload.get("drug_name", ""))
                         drug_class = html.escape(comp.payload.get("drug_class", ""))
                         class_str = f" ({drug_class})" if drug_class else ""
-                        html_lines.append(f"💊 <b>{drug_name}</b>{class_str}")
+                        comp_html += f"💊 <b>{drug_name}</b>{class_str}\n\n"
                         
                         mech = comp.payload.get("mechanism")
                         if mech:
-                            html_lines.append(f"<b>MECHANISM</b>\n• {html.escape(mech)}")
+                            comp_html += f"<b>MECHANISM</b>\n• {html.escape(mech)}\n\n"
                         
                         for section_title, key in [("INDICATIONS", "indications"), ("CONTRAINDICATIONS", "contraindications"), ("SIDE EFFECTS", "side_effects")]:
                             items = comp.payload.get(key, [])
                             if items:
-                                html_lines.append(f"<b>{section_title}</b>")
+                                comp_html += f"<b>{section_title}</b>\n"
                                 for item in items:
-                                    html_lines.append(f"• {html.escape(item)}")
-                        html_lines.append("")
+                                    comp_html += f"• {html.escape(item)}\n\n"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "comparison":
                         topic_a = html.escape(comp.payload.get("topic_a", "Topic A"))
                         topic_b = html.escape(comp.payload.get("topic_b", "Topic B"))
-                        html_lines.append(f"⚖️ <b>COMPARISON: {topic_a} vs {topic_b}</b>")
+                        comp_html += f"⚖️ <b>COMPARISON: {topic_a} vs {topic_b}</b>\n\n"
                         aspects = comp.payload.get("aspects", [])
                         for aspect_data in aspects:
                             aspect_name = html.escape(aspect_data.get("aspect", ""))
                             a_val = html.escape(aspect_data.get("a", ""))
                             b_val = html.escape(aspect_data.get("b", ""))
-                            html_lines.append(f"• <b>{aspect_name}</b>: {a_val} | {b_val}")
-                        html_lines.append("")
+                            comp_html += f"• <b>{aspect_name}</b>:\n  {a_val}\n  <b>VS</b>\n  {b_val}\n\n"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "timeline":
-                        html_lines.append("🕐 <b>Timeline</b>")
+                        comp_html += "🕐 <b>Timeline</b>\n\n"
                         events = comp.payload.get("events", [])
                         for ev in events:
                             t = html.escape(ev.get("time", ""))
                             e = html.escape(ev.get("event", ""))
-                            html_lines.append(f"{t} — {e}")
-                        html_lines.append("")
+                            comp_html += f"<b>{t}</b> — {e}\n\n"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "formula":
                         name = html.escape(comp.payload.get("name", ""))
                         expr = html.escape(comp.payload.get("expression", ""))
-                        html_lines.append(f"<b>{name}</b>\n<code>{expr}</code>")
+                        comp_html += f"<b>{name}</b>\n\n<code>{expr}</code>\n\n"
                         vars_list = comp.payload.get("variables", [])
                         if vars_list:
-                            html_lines.append("Where:")
+                            comp_html += "<b>Where:</b>\n"
                             for var in vars_list:
                                 v_name = html.escape(var.get("name", ""))
                                 v_meaning = html.escape(var.get("meaning", ""))
-                                html_lines.append(f"• {v_name} = {v_meaning}")
-                        html_lines.append("")
+                                comp_html += f"• {v_name} = {v_meaning}\n"
+                        comp_html = comp_html.strip()
                     elif comp.component_type == "guideline":
                         org = html.escape(comp.payload.get("organization", ""))
-                        html_lines.append(f"📜 <b>{org} Guidelines</b>")
+                        comp_html += f"📜 <b>{org} Guidelines</b>\n\n<blockquote>"
                         recs = comp.payload.get("recommendations", [])
                         for rec in recs:
-                            html_lines.append(f"• {html.escape(rec)}")
-                        html_lines.append("")
+                            comp_html += f"• {html.escape(rec)}\n\n"
+                        comp_html = comp_html.strip() + "</blockquote>"
                     elif comp.component_type == "clinical_case":
-                        html_lines.append("🩺 <b>Clinical Case</b>")
+                        comp_html += "🩺 <b>Clinical Case</b>\n\n<blockquote>"
                         pres = html.escape(comp.payload.get("patient_presentation", ""))
-                        html_lines.append(f"{pres}\n")
+                        comp_html += f"<i>{pres}</i>\n\n"
                         findings = comp.payload.get("key_findings", [])
                         if findings:
-                            html_lines.append("<b>Key Findings</b>")
+                            comp_html += "<b>Key Findings</b>\n"
                             for f in findings:
-                                html_lines.append(f"• {html.escape(f)}")
+                                comp_html += f"• {html.escape(f)}\n"
                         diagnosis = comp.payload.get("diagnosis")
                         if diagnosis:
-                            html_lines.append(f"\n<b>Diagnosis:</b> {html.escape(diagnosis)}")
-                        html_lines.append("")
+                            comp_html += f"\n<b>Diagnosis:</b> {html.escape(diagnosis)}"
+                        comp_html += "</blockquote>"
                     elif comp.component_type == "reference":
                         source = html.escape(comp.payload.get("source", "Reference"))
                         pages = html.escape(str(comp.payload.get("page", "")))
                         pages_str = f" (p. {pages})" if pages and pages != "None" else ""
-                        html_lines.append(f"📚 <i>Source: {source}{pages_str}</i>\n")
+                        comp_html += f"📚 <i>Source: {source}{pages_str}</i>"
                     elif comp.component_type == "definition":
                         term = html.escape(comp.payload.get("term", ""))
                         definition = html.escape(comp.payload.get("definition", ""))
-                        html_lines.append(f"<b>{term}</b>\n{definition}\n")
+                        comp_html += f"<blockquote><b>{term}</b>\n\n{definition}</blockquote>"
                     elif comp.component_type == "concept":
                         name = html.escape(comp.payload.get("name", ""))
-                        html_lines.append(f"📌 <b>{name}</b>")
+                        comp_html += f"📌 <b>{name}</b>\n\n"
                         details = comp.payload.get("details", [])
                         for d in details:
-                            html_lines.append(f"• {html.escape(d)}")
-                        html_lines.append("")
+                            comp_html += f"• {html.escape(d)}\n\n"
+                        comp_html = comp_html.strip()
                     else:
                         logger.warning(f"Unknown component type: {comp.component_type}")
+                        
+                    if comp_html.strip():
+                        messages.append(comp_html.strip())
                 except Exception as e:
                     logger.error(f"Failed to render component {comp.component_type}: {e}")
                     
-        rendered_html = "\n".join(html_lines).strip()
-        
+        # If there are no components but there is a header
+        if not messages and header:
+            messages.append(header.strip())
+            
         # Build keyboard
         keyboard = None
         if document.ia_schema:
             keyboard = build_keyboard(document.ia_schema)
             
-        return TelegramScreen(html=rendered_html, keyboard=keyboard)
+        return TelegramScreen(messages=messages, keyboard=keyboard)

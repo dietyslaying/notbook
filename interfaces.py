@@ -305,10 +305,10 @@ class EditStrategy(str, Enum):
 
 class TelegramScreen(BaseModel):
     """
-    Full output of the Renderer. html is one field — not the entire output.
+    Full output of the Renderer. messages is a list of HTML strings.
     This keeps future rich Telegram features and other platforms easy to adopt.
     """
-    html: str                             # Telegram HTML (parse_mode="HTML")
+    messages: list[str] = Field(default_factory=list) # Telegram HTML (parse_mode="HTML")
     keyboard: Optional[TelegramKeyboard] = None
     char_count: int = 0                   # Must be <= 4096
     edit_strategy: EditStrategy = EditStrategy.EDIT_IN_PLACE

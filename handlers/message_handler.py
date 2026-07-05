@@ -25,7 +25,12 @@ async def handle_start_command(
     
     doc = menu_workspace.generate_screen(session=session, screen_id="main")
     screen = renderer.render(doc)
-    await message.answer(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
+    if screen.messages:
+        for i, msg in enumerate(screen.messages):
+            kb = to_aiogram_keyboard(screen.keyboard) if i == len(screen.messages) - 1 else None
+            await message.answer(msg, reply_markup=kb)
+    else:
+        await message.answer("No content generated.", reply_markup=to_aiogram_keyboard(screen.keyboard))
 
 
 async def handle_text_message(
@@ -63,10 +68,12 @@ async def handle_text_message(
             user_mode=UserMode.STUDENT
         )
     else:
-        session.topic = intent.topic
-        session.workspace_type = intent.topic_type
-        session.knowledge_tree = None
-        session.ia_schema = None
+        # Cost-Aware Caching: Only clear knowledge tree if topic changes
+        if session.topic != intent.topic or session.workspace_type != intent.topic_type:
+            session.topic = intent.topic
+            session.workspace_type = intent.topic_type
+            session.knowledge_tree = None
+            session.ia_schema = None
     
     # 3. Handle specific intent
     # Loading state
@@ -107,9 +114,10 @@ async def handle_text_message(
         # Throttle Telegram edits to once every 1.5 seconds to avoid 429 errors
         if current_time - last_edit_time > 1.5:
             screen = renderer.render(doc)
+            combined_html = "\n\n".join(screen.messages)
             try:
                 await loading_msg.edit_text(
-                    screen.html + "\n\n<i>(✍️ Generating...)</i>", 
+                    combined_html + "\n\n<i>(✍️ Generating...)</i>", 
                     reply_markup=to_aiogram_keyboard(screen.keyboard)
                 )
                 last_edit_time = current_time
@@ -117,17 +125,17 @@ async def handle_text_message(
                 # Ignore "message is not modified" errors
                 pass
                 
-    # Final render
+    # Final render: delete single message and send split messages
+    await loading_msg.delete()
+    
     if doc:
         screen = renderer.render(doc)
-        try:
-            await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
-        except TelegramBadRequest:
-            pass
-
-    screen = renderer.render(doc)
-    try:
-        await loading_msg.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
-    except TelegramBadRequest:
-        pass
+        if screen.messages:
+            for i, msg in enumerate(screen.messages):
+                kb = to_aiogram_keyboard(screen.keyboard) if i == len(screen.messages) - 1 else None
+                try:
+                    await message.answer(msg, reply_markup=kb)
+                except TelegramBadRequest as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to send final msg: {e}")
 

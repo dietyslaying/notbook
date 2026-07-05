@@ -77,10 +77,14 @@ async def handle_callback(
         bookmarks = store.get_bookmarks(user_id)
         if 0 <= idx < len(bookmarks):
             b = bookmarks[idx]
-            session.topic = b.topic
-            session.workspace_type = WorkspaceType(b.workspace_type)
-            session.knowledge_tree = None
-            session.ia_schema = None
+            
+            # Cost-Aware Caching: Only clear if topic changes
+            if session.topic != b.topic or session.workspace_type != WorkspaceType(b.workspace_type):
+                session.topic = b.topic
+                session.workspace_type = WorkspaceType(b.workspace_type)
+                session.knowledge_tree = None
+                session.ia_schema = None
+                
             await session_manager.update(session)
             
             # Map workspace type to workspace object and BotState
@@ -114,21 +118,27 @@ async def handle_callback(
                     current_time = time.time()
                     if current_time - last_edit_time > 1.5:
                         screen = renderer.render(doc)
+                        combined_html = "\n\n".join(screen.messages)
                         try:
                             await callback_query.message.edit_text(
-                                screen.html + "\n\n<i>(✍️ Loading Bookmark...)</i>",
+                                combined_html + "\n\n<i>(✍️ Loading Bookmark...)</i>",
                                 reply_markup=to_aiogram_keyboard(screen.keyboard)
                             )
                             last_edit_time = current_time
                         except TelegramBadRequest:
                             pass
                 
+                await callback_query.message.delete()
+                
                 if doc:
                     screen = renderer.render(doc)
-                    try:
-                        await callback_query.message.edit_text(screen.html, reply_markup=to_aiogram_keyboard(screen.keyboard))
-                    except TelegramBadRequest:
-                        pass
+                    if screen.messages:
+                        for i, msg in enumerate(screen.messages):
+                            kb = to_aiogram_keyboard(screen.keyboard) if i == len(screen.messages) - 1 else None
+                            try:
+                                await callback_query.message.answer(msg, reply_markup=kb)
+                            except TelegramBadRequest as e:
+                                logger.error(f"Failed to send bookmark msg: {e}")
                 await callback_query.answer("Jumped to bookmark!")
                 return
         
@@ -171,14 +181,16 @@ async def handle_callback(
             
         screen = renderer.render(doc)
         
-        # Update message
+        # We must delete the old message since we are sending a list of new messages
         try:
-            await callback_query.message.edit_text(
-                text=screen.html,
-                reply_markup=to_aiogram_keyboard(screen.keyboard)
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" in str(e):
-                pass
-            else:
-                raise
+            await callback_query.message.delete()
+        except TelegramBadRequest:
+            pass
+            
+        if screen.messages:
+            for i, msg in enumerate(screen.messages):
+                kb = to_aiogram_keyboard(screen.keyboard) if i == len(screen.messages) - 1 else None
+                try:
+                    await callback_query.message.answer(msg, reply_markup=kb)
+                except TelegramBadRequest as e:
+                    logger.error(f"Failed to send nav msg: {e}")

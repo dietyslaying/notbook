@@ -180,6 +180,56 @@ async def query_rag_stream(namespace: str, user_question: str, chat_history: lis
         raise e
 
 
+def classify_intent(text: str) -> dict:
+    from pydantic import BaseModel, Field
+    import json
+    
+    class IntentSchema(BaseModel):
+        intent_type: str = Field(description="One of: topic_overview, topic_section, drug_lookup, drug_section, clinical_case, comparison, algorithm, lab_test, quiz_request, flashcard_request, anatomy_lookup, procedure_lookup, main_menu, settings, bookmarks, unknown")
+        topic: str = Field(default=None, description="The main medical topic, disease, drug, symptom, or entity mentioned. E.g., 'DIABETES', 'ASPIRIN'. Leave null if unknown.")
+        topic_type: str = Field(default=None, description="One of: menu, disease, drug, case, comparison, algorithm, lab_test, anatomy, procedure")
+        section: str = Field(default=None, description="Specific section requested, e.g., 'symptoms', 'dosage'.")
+        confidence: float = Field(description="Confidence score between 0.0 and 1.0")
+
+    system_msg = (
+        "You are an Intent Classification engine for a medical study assistant. "
+        "Your job is to classify free-text medical queries into strict predefined intents and extract the core topic. "
+        "Extract the primary topic (e.g., disease, drug, symptom) and normalize it to uppercase. "
+        "If the query is a clinical vignette (e.g., '42M presents with chest pain...'), classify it as intent_type 'clinical_case' and topic_type 'case', with the topic as the core symptom or suspected condition. "
+        "If the query compares two or more things (e.g., 'difference between X and Y'), classify it as intent_type 'comparison' and topic_type 'comparison'. "
+        "If the query is just a single entity or short phrase, figure out if it's a disease (topic_type 'disease', intent_type 'topic_overview') or a drug (topic_type 'drug', intent_type 'drug_lookup'). "
+        "If you can't determine the intent, return 'unknown'."
+    )
+    
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text=f"Classify this query: {text}")]
+        )
+    ]
+    
+    gemini_config = types.GenerateContentConfig(
+        system_instruction=system_msg,
+        temperature=0.1,
+        response_mime_type="application/json",
+        response_schema=IntentSchema
+    )
+    
+    global current_client_idx
+    client = clients[current_client_idx]
+    
+    try:
+        response = client.models.generate_content(
+            model=config['llm']['model_name'],
+            contents=contents,
+            config=gemini_config
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        logger.error(f"Intent classification failed: {e}")
+        return {"intent_type": "unknown", "confidence": 0.0}
+
+
 async def generate_quiz_questions(context_text: str, count: int) -> list:
     import asyncio
     from pydantic import BaseModel, Field
