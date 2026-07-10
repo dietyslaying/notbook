@@ -3,21 +3,19 @@ from pinecone import Pinecone
 from config import config
 from services.cache_manager import CacheManager
 from core.ndm_validator import NDMValidator
+import random
 
 class GeminiService:
     def __init__(self):
-        genai.configure(api_key=config.gemini_api_key)
         llm_cfg = config.raw_config['llm']
-        self.model = genai.GenerativeModel(
-            llm_cfg['model_name'],
-            generation_config={
-                "temperature": llm_cfg['temperature'],
-                "top_p": llm_cfg['top_p'],
-                "top_k": llm_cfg['top_k'],
-                "max_output_tokens": llm_cfg['max_output_tokens'],
-                "response_mime_type": "application/json"
-            }
-        )
+        self.model_name = llm_cfg['model_name']
+        self.generation_config = {
+            "temperature": llm_cfg['temperature'],
+            "top_p": llm_cfg['top_p'],
+            "top_k": llm_cfg['top_k'],
+            "max_output_tokens": llm_cfg['max_output_tokens'],
+            "response_mime_type": "application/json"
+        }
         
         self.pc = Pinecone(api_key=config.pinecone_api_key)
         self.pinecone_cfg = config.raw_config['pinecone']
@@ -79,7 +77,12 @@ class GeminiService:
         """
         
         try:
-            response = await self.model.generate_content_async(prompt)
+            api_key = random.choice(config.gemini_api_keys) if config.gemini_api_keys else None
+            if api_key:
+                genai.configure(api_key=api_key)
+                
+            model = genai.GenerativeModel(self.model_name, generation_config=self.generation_config)
+            response = await model.generate_content_async(prompt)
             validated_data = NDMValidator.validate(response.text)
             
             if "error" not in validated_data:

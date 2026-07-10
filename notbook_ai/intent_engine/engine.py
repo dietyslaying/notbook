@@ -2,14 +2,11 @@ import google.generativeai as genai
 from config import config
 from interfaces import IntentType
 import json
+import random
 
 class IntentEngine:
     def __init__(self):
-        genai.configure(api_key=config.gemini_api_key)
-        self.model = genai.GenerativeModel(
-            config.raw_config['llm']['model_name'],
-            generation_config={"response_mime_type": "application/json"}
-        )
+        self.model_name = config.raw_config['llm']['model_name']
 
     async def classify(self, text: str) -> IntentType:
         prompt = f"""
@@ -23,7 +20,12 @@ class IntentEngine:
         User Query: {text}
         """
         try:
-            response = await self.model.generate_content_async(prompt)
+            api_key = random.choice(config.gemini_api_keys) if config.gemini_api_keys else None
+            if api_key:
+                genai.configure(api_key=api_key)
+                
+            model = genai.GenerativeModel(self.model_name, generation_config={"response_mime_type": "application/json"})
+            response = await model.generate_content_async(prompt)
             data = json.loads(response.text)
             return IntentType(data.get("intent", "unknown"))
         except Exception:
