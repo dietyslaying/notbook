@@ -24,17 +24,18 @@ class TelegramRenderer:
             elif comp.component_type == "fact_list":
                 facts = comp.data[:3] # HARD LIMIT 3
                 if facts:
-                    html_parts.append("<ul>")
                     for fact in facts:
-                        html_part = html.escape(str(fact))
-                        html_part = html_part.replace('*', '') # Strip any stray markdown
-                        html_parts.append(f"<li>{html_part}</li>")
-                    html_parts.append("</ul>\n")
+                        # Use unicode bullet instead of <ul><li> which Telegram rejects
+                        fact_str = html.escape(str(fact)).replace('*', '')
+                        html_parts.append(f"• {fact_str}\n")
+                    html_parts.append("\n") # Spacing
                     
             elif comp.component_type == "collapsible":
-                details = str(comp.data).replace('*', '') # Strip stray markdown
+                # Sanitize any stray markdown
+                details = str(comp.data).replace('*', '')
                 if details:
-                    html_parts.append(f"<details><summary>📋 Expand Details</summary>\n{details}\n</details>\n\n")
+                    # Telegram uses <blockquote expandable> for collapsible text!
+                    html_parts.append(f"<blockquote expandable><b>📋 Expand Details</b>\n{details}</blockquote>\n\n")
                     
             elif comp.component_type == "source":
                 source = html.escape(str(comp.data))

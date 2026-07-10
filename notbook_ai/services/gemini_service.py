@@ -79,7 +79,7 @@ class GeminiService:
           "title": "Disease/Topic Name",
           "summary": "3 sentence max plain text summary.",
           "core_facts": ["Fact 1", "Fact 2", "Fact 3"],
-          "expandable_details": "HTML formatted details using <ul><li> tags ONLY.",
+          "expandable_details": "Plain text details. Use simple dashes (-) for lists. Do not use any HTML tags.",
           "source_citation": "Book Name, Page"
         }}
         
