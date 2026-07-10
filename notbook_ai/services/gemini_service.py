@@ -33,10 +33,21 @@ class GeminiService:
             )
             vector = embeddings.data[0].values
             
-            results = self.index.query(vector=vector, top_k=3, include_metadata=True)
+            # Dynamically fetch all namespaces to search across all textbooks
+            stats = self.index.describe_index_stats()
+            namespaces = [ns for ns in stats.namespaces.keys() if ns != "_user_sessions"]
+            
+            all_matches = []
+            for ns in namespaces:
+                res = self.index.query(namespace=ns, vector=vector, top_k=3, include_metadata=True)
+                all_matches.extend(res.get('matches', []))
+                
+            # Sort by score descending and take top 3 overall
+            all_matches.sort(key=lambda x: x.get('score', 0), reverse=True)
+            top_matches = all_matches[:3]
             
             context = ""
-            for match in results['matches']:
+            for match in top_matches:
                 text = match['metadata'].get('text', '')
                 page = match['metadata'].get('page', 'N/A')
                 context += f"Book Excerpt (Page {page}):\n{text}\n\n---\n\n"
