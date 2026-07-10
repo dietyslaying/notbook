@@ -15,11 +15,22 @@ class MessageHandler:
         self.fallback_ws = MedicalWorkspace()
 
     async def handle(self, message: Message, bot):
-        await bot.send_chat_action(message.chat.id, "typing")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Inside MessageHandler.handle...")
+        
+        try:
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            logger.info("Sent chat action 'typing'.")
+        except Exception as e:
+            logger.warning(f"Failed to send chat action: {e}")
+            
         user_query = message.text
         
         # 1. Intent Routing
+        logger.info(f"Classifying intent for query: {user_query}")
         intent = await self.intent_engine.classify(user_query)
+        logger.info(f"Intent classified as: {intent}")
         
         # 2. Workspace Processing (RAG + LLM)
         if intent == IntentType.DISEASE:
@@ -28,6 +39,8 @@ class MessageHandler:
             ndm_data = await self.drug_ws.process(user_query)
         else:
             ndm_data = await self.fallback_ws.process(user_query)
+            
+        logger.info(f"Workspace returned NDM Data keys: {ndm_data.keys()}")
             
         # 3. Presentation Engine (Map to UI Components)
         components = ComponentPolicy.map_to_ui_components(ndm_data)

@@ -28,6 +28,7 @@ app.router.add_get('/', handle_health)
 
 @dp.message(CommandStart())
 async def start_cmd(message: Message):
+    logging.info(f"Received /start from {message.from_user.id}")
     await message.answer(
         "<b>Notbook AI</b>\n\n"
         "I am your strictly book-smart medical study buddy. "
@@ -37,7 +38,12 @@ async def start_cmd(message: Message):
 
 @dp.message(F.text)
 async def handle_message(message: Message):
-    await msg_handler.handle(message, bot)
+    logging.info(f"Received text message from {message.from_user.id}: {message.text}")
+    try:
+        await msg_handler.handle(message, bot)
+        logging.info("Message successfully handled.")
+    except Exception as e:
+        logging.error(f"FATAL ERROR in message handler: {e}")
 
 @dp.callback_query()
 async def handle_callback(callback: CallbackQuery):
