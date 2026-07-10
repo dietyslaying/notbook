@@ -52,6 +52,9 @@ async def main():
     await site.start()
     logging.info(f"Listening on port {port} for Render health checks...")
 
+    # Delete any existing webhooks before polling
+    await bot.delete_webhook(drop_pending_updates=True)
+
     # Start Telegram polling
     logging.info("Starting Notbook AI Telegram polling...")
     await dp.start_polling(bot)
