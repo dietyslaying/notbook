@@ -83,25 +83,29 @@
         <h2>// DEPLOY BOT (Render)</h2>
         <p class="hint">
           Redeploys the Telegram bot Web Service from git.
-          Needs <code>RENDER_API_KEY</code> on this console’s Environment (Render dashboard).
-          Pick the <b>bot</b> service, not this console.
+          Needs <code>RENDER_API_KEY</code> on this console’s Environment.
+          Click a service below (pick the <b>bot</b>, not this console).
         </p>
         <div class="row">
-          <button class="btn" id="btn-bot-list">LOAD SERVICES</button>
-          <button class="btn ghost" id="btn-bot-refresh">REFRESH DETAIL</button>
+          <button class="btn" id="btn-bot-list" type="button">LOAD SERVICES</button>
+          <button class="btn ghost" id="btn-bot-refresh" type="button">REFRESH DETAIL</button>
         </div>
-        <label>Bot service
-          <select id="bot-service-select">
-            <option value="">— load services —</option>
-          </select>
-        </label>
+        <div class="svc-bar">
+          <span class="svc-label">Selected:</span>
+          <span id="bot-service-label" class="svc-picked">— none —</span>
+        </div>
+        <div id="bot-service-list" class="svc-list" role="listbox" aria-label="Render services">
+          <div class="svc-empty">// click LOAD SERVICES</div>
+        </div>
+        <!-- hidden value used by deploy/logs -->
+        <input type="hidden" id="bot-service-select" value="" />
         <div class="row">
-          <button class="btn" id="btn-bot-deploy">DEPLOY LATEST</button>
-          <button class="btn danger" id="btn-bot-deploy-clear">CLEAR CACHE + DEPLOY</button>
+          <button class="btn" id="btn-bot-deploy" type="button">DEPLOY LATEST</button>
+          <button class="btn danger" id="btn-bot-deploy-clear" type="button">CLEAR CACHE + DEPLOY</button>
         </div>
         <pre id="deploy-msg" class="msg"></pre>
         <h2>// SERVICE</h2>
-        <pre id="deploy-detail" class="term-block">// load services, pick the bot</pre>
+        <pre id="deploy-detail" class="term-block">// load services, then click one</pre>
         <h2>// RECENT DEPLOYS</h2>
         <pre id="deploy-deploys" class="term-block log">// —</pre>
       </section>

@@ -306,71 +306,150 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
 });
 
 /* ---------- DEPLOY BOT ---------- */
+let _botServices = [];
+
 function selectedBotServiceId() {
   return ($("#bot-service-select")?.value || "").trim();
 }
 
-async function loadBotServices() {
-  const r = await api("/api/render/services");
-  const sel = $("#bot-service-select");
-  if (!sel) return;
-  const preferred = r.preferred || "";
-  sel.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.textContent = "— pick bot service —";
-  sel.appendChild(opt0);
-  for (const s of r.services || []) {
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    const label = `${s.name || s.id}  (${s.type || "?"})`;
-    opt.textContent = label;
-    if (s.id === preferred) opt.selected = true;
-    // prefer names that look like the bot
-    const n = (s.name || "").toLowerCase();
-    if (!preferred && (n.includes("bot") || n.includes("notbook")) && !n.includes("console")) {
-      opt.selected = true;
-    }
-    sel.appendChild(opt);
+function setSelectedBotService(id, label) {
+  const hid = $("#bot-service-select");
+  if (hid) hid.value = id || "";
+  const lab = $("#bot-service-label");
+  if (lab) lab.textContent = label || (id ? id : "— none —");
+  $$("#bot-service-list .svc-item").forEach((el) => {
+    el.classList.toggle("active", el.dataset.id === id);
+  });
+}
+
+function pickDefaultService(services, preferred) {
+  if (preferred) {
+    const hit = services.find((s) => s.id === preferred);
+    if (hit) return hit;
   }
-  setMsg("#deploy-msg", `loaded ${r.count} service(s)`);
-  if (selectedBotServiceId()) await refreshDeployDetail();
+  // Prefer bot-like name, not console
+  const botish = services.find((s) => {
+    const n = (s.name || s.slug || "").toLowerCase();
+    return (n.includes("bot") || n.includes("notbook") || n.includes("pa2k")) &&
+      !n.includes("console");
+  });
+  if (botish) return botish;
+  // web service that isn't this console hostname
+  const me = (window.location.hostname || "").toLowerCase();
+  const other = services.find((s) => {
+    const u = (s.url || "").toLowerCase();
+    return u && me && !u.includes(me);
+  });
+  return other || services[0] || null;
+}
+
+async function loadBotServices() {
+  setMsg("#deploy-msg", "loading Render services…");
+  const list = $("#bot-service-list");
+  try {
+    const r = await api("/api/render/services");
+    _botServices = (r.services || []).filter((s) => s && s.id);
+    const preferred = r.preferred_service_id || r.preferred || "";
+
+    if (!list) return;
+    list.innerHTML = "";
+    if (!_botServices.length) {
+      list.innerHTML =
+        '<div class="svc-empty">// no services returned — check RENDER_API_KEY</div>';
+      setMsg("#deploy-msg", "0 services (API key ok but empty list?)", false);
+      return;
+    }
+
+    for (const s of _botServices) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "svc-item";
+      btn.dataset.id = s.id;
+      btn.setAttribute("role", "option");
+      const name = s.name || s.slug || s.id;
+      const url = s.url || "";
+      btn.innerHTML =
+        `<span class="svc-name">${escapeHtml(name)}</span>` +
+        `<span class="svc-meta">${escapeHtml(s.type || "?")} · ${escapeHtml(s.id)}</span>` +
+        (url ? `<span class="svc-url">${escapeHtml(url)}</span>` : "");
+      btn.addEventListener("click", () => {
+        setSelectedBotService(s.id, `${name} (${s.id})`);
+        setMsg("#deploy-msg", `selected ${name}`);
+        refreshDeployDetail().catch((e) => setMsg("#deploy-msg", String(e), false));
+      });
+      list.appendChild(btn);
+    }
+
+    const def = pickDefaultService(_botServices, preferred);
+    if (def) {
+      setSelectedBotService(def.id, `${def.name || def.id} (${def.id})`);
+      await refreshDeployDetail();
+      setMsg(
+        "#deploy-msg",
+        `loaded ${_botServices.length} service(s) · selected ${def.name || def.id}`
+      );
+    } else {
+      setMsg("#deploy-msg", `loaded ${_botServices.length} service(s) · click one to select`);
+    }
+  } catch (e) {
+    if (list) {
+      list.innerHTML = `<div class="svc-empty">// load failed: ${escapeHtml(String(e))}</div>`;
+    }
+    setMsg(
+      "#deploy-msg",
+      String(e) +
+        " — set RENDER_API_KEY on this console service Environment, then redeploy console.",
+      false
+    );
+  }
+}
+
+function escapeHtml(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function refreshDeployDetail() {
   const sid = selectedBotServiceId();
   if (!sid) {
-    $("#deploy-detail").textContent = "// select a service";
-    $("#deploy-deploys").textContent = "// —";
+    if ($("#deploy-detail")) $("#deploy-detail").textContent = "// click a service above";
+    if ($("#deploy-deploys")) $("#deploy-deploys").textContent = "// —";
     return;
   }
   const r = await api("/api/render/service/" + encodeURIComponent(sid));
   const s = r.service || {};
-  $("#deploy-detail").textContent = [
-    `ID      ${s.id}`,
-    `NAME    ${s.name}`,
-    `TYPE    ${s.type}`,
-    `URL     ${s.url || "—"}`,
-    `BRANCH  ${s.branch || "—"}`,
-    `REGION  ${s.region || "—"}`,
-    `SUSP    ${s.suspended || "—"}`,
-  ].join("\n");
+  if ($("#deploy-detail")) {
+    $("#deploy-detail").textContent = [
+      `ID      ${s.id || sid}`,
+      `NAME    ${s.name || "—"}`,
+      `TYPE    ${s.type || "—"}`,
+      `URL     ${s.url || "—"}`,
+      `BRANCH  ${s.branch || "—"}`,
+      `REGION  ${s.region || "—"}`,
+      `SUSP    ${s.suspended || "—"}`,
+    ].join("\n");
+  }
   const deps = r.deploys || [];
-  if (!deps.length) {
-    $("#deploy-deploys").textContent = "(no recent deploys)";
-  } else {
-    $("#deploy-deploys").textContent = deps
-      .map(
-        (d) =>
-          `${d.createdAt || d.finishedAt || "?"}  ${d.status || "?"}  ${d.id || ""}`
-      )
-      .join("\n");
+  if ($("#deploy-deploys")) {
+    if (!deps.length) {
+      $("#deploy-deploys").textContent = "(no recent deploys)";
+    } else {
+      $("#deploy-deploys").textContent = deps
+        .map(
+          (d) =>
+            `${d.createdAt || d.finishedAt || "?"}  ${d.status || "?"}  ${d.id || ""}`
+        )
+        .join("\n");
+    }
   }
 }
 
 async function deployBot(clearCache) {
   const sid = selectedBotServiceId();
-  if (!sid) return setMsg("#deploy-msg", "select the bot service first", false);
+  if (!sid) return setMsg("#deploy-msg", "select the bot service first (click one in the list)", false);
   setMsg("#deploy-msg", clearCache ? "clear cache + deploy…" : "deploying…");
   try {
     const path = clearCache ? "/api/render/deploy/clear" : "/api/render/deploy";
@@ -391,21 +470,27 @@ async function deployBot(clearCache) {
 }
 
 $("#btn-bot-list")?.addEventListener("click", () => {
-  loadBotServices().catch((e) => setMsg("#deploy-msg", String(e), false));
+  loadBotServices();
 });
 $("#btn-bot-refresh")?.addEventListener("click", () => {
   refreshDeployDetail()
     .then(() => setMsg("#deploy-msg", "detail refreshed"))
     .catch((e) => setMsg("#deploy-msg", String(e), false));
 });
-$("#bot-service-select")?.addEventListener("change", () => {
-  refreshDeployDetail().catch((e) => setMsg("#deploy-msg", String(e), false));
-});
 $("#btn-bot-deploy")?.addEventListener("click", () => deployBot(false));
 $("#btn-bot-deploy-clear")?.addEventListener("click", () => {
   if (!selectedBotServiceId()) return setMsg("#deploy-msg", "select service first", false);
   if (!confirm("Clear build cache and deploy latest bot code?")) return;
   deployBot(true);
+});
+
+// Auto-load when opening DEPLOY BOT tab
+$$("#tabs button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.tab === "deploy" && !_botServices.length) {
+      loadBotServices();
+    }
+  });
 });
 
 /* ---------- LOGS ---------- */
