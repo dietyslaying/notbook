@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from flask import Flask, jsonify, render_template, request
+from functools import wraps
+
+from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +38,50 @@ app = Flask(
     template_folder=str(CONSOLE / "templates"),
     static_folder=str(CONSOLE / "static"),
 )
+
+
+def _console_auth_enabled() -> bool:
+    return bool(
+        (os.getenv("CONSOLE_PASSWORD") or _read_env().get("CONSOLE_PASSWORD") or "").strip()
+    )
+
+
+def _check_basic_auth() -> bool:
+    """HTTP Basic auth when CONSOLE_PASSWORD is set."""
+    expected = (
+        os.getenv("CONSOLE_PASSWORD") or _read_env().get("CONSOLE_PASSWORD") or ""
+    ).strip()
+    if not expected:
+        return True
+    user_expected = (
+        os.getenv("CONSOLE_USER") or _read_env().get("CONSOLE_USER") or "admin"
+    ).strip()
+    auth = request.authorization
+    if not auth:
+        return False
+    return auth.username == user_expected and auth.password == expected
+
+
+@app.before_request
+def _require_console_auth():
+    # Always allow health probes without auth
+    if request.path in ("/health", "/healthz"):
+        return None
+    if not _console_auth_enabled():
+        return None
+    if _check_basic_auth():
+        return None
+    return Response(
+        "Authentication required.\nSet CONSOLE_USER / CONSOLE_PASSWORD on the service.",
+        401,
+        {"WWW-Authenticate": 'Basic realm="Notbook Deploy Console"'},
+    )
+
+
+@app.get("/health")
+@app.get("/healthz")
+def healthz():
+    return Response("ok", 200, mimetype="text/plain")
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +246,9 @@ services:
 
     files["Procfile"] = "web: python main.py\n"
 
-    files["render.yaml"] = """# Render Blueprint — Notbook AI Telegram bot
+    files["render.yaml"] = """# Render Blueprint — Notbook AI
 # https://render.com/docs/blueprint-spec
+# NOTE: Deploy Console is a separate Web Service (not Static Site).
 services:
   - type: web
     name: notbook-bot
@@ -220,6 +267,85 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: "3.11.9"
+
+  - type: web
+    name: notbook-console
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_deploy_console.py
+    envVars:
+      - key: CONSOLE_PASSWORD
+        sync: false
+      - key: CONSOLE_USER
+        value: admin
+      - key: CONSOLE_HOST
+        value: "0.0.0.0"
+      - key: CONSOLE_NO_BROWSER
+        value: "1"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: ADMIN_USER_IDS
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_SERVICE_ID
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+"""
+
+    files["RENDER_CONSOLE.md"] = """# Host Deploy Console on Render
+
+## Wrong type: Static Site
+Static Site only serves HTML files. The console is a **Flask Python app**.
+Cancel "New Static Site" and use **Web Service** instead.
+
+## Correct: New → Web Service
+
+| Field | Value |
+|-------|--------|
+| Source | dietyslaying/notbook |
+| Name | notbook-console |
+| Language | Python 3 |
+| Branch | main |
+| Root Directory | (leave empty) |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `python run_deploy_console.py` |
+| Instance | Free (sleeps) or paid |
+
+## Environment variables (required)
+
+```
+CONSOLE_PASSWORD=pick-a-strong-password
+CONSOLE_USER=admin
+CONSOLE_NO_BROWSER=1
+CONSOLE_HOST=0.0.0.0
+
+# Same bot secrets as the main service (for library upload / sync)
+TELEGRAM_BOT_TOKEN=...
+GEMINI_API_KEY=...
+PINECONE_API_KEY=...
+ADMIN_USER_IDS=...
+
+# Optional: control the bot service from the console
+RENDER_API_KEY=...
+RENDER_SERVICE_ID=srv-...
+```
+
+Render sets `PORT` automatically — do not hardcode it.
+
+## Security
+The console can upload books, read env, and trigger deploys.
+**Always set CONSOLE_PASSWORD** if the service is public.
+Browser will prompt for Basic Auth (user + password).
+
+## After deploy
+Open https://notbook-console.onrender.com (your URL) → enter password → use LIBRARY / RENDER tabs.
 """
 
     files["railway.toml"] = """# Railway — Notbook AI

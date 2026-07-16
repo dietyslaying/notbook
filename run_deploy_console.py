@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Launch the Notbook Deploy Console (retro management UI)."""
+"""Launch the Notbook Deploy Console (retro management UI).
+
+Local:
+  python run_deploy_console.py
+
+Render / cloud (Web Service — NOT Static Site):
+  Build:  pip install -r requirements.txt
+  Start:  python run_deploy_console.py
+  Env:    PORT (auto), CONSOLE_PASSWORD (required recommended), secrets…
+"""
 
 from __future__ import annotations
 
@@ -18,21 +27,31 @@ except ImportError:
     print("Installing Flask for Deploy Console…")
     import subprocess
 
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0"])
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0"]
+    )
 
 from app import app, _ensure_dirs  # noqa: E402
 
 if __name__ == "__main__":
     _ensure_dirs()
-    port = int(os.getenv("CONSOLE_PORT", "8787"))
-    url = f"http://127.0.0.1:{port}"
+    # Render injects PORT; local defaults to 8787
+    port = int(os.getenv("PORT") or os.getenv("CONSOLE_PORT") or "8787")
+    # 0.0.0.0 required for Render / Docker; 127.0.0.1 only for local-only mode
+    host = os.getenv("CONSOLE_HOST", "0.0.0.0")
+    public = os.getenv("RENDER_EXTERNAL_URL") or f"http://127.0.0.1:{port}"
     print("=" * 50)
     print("  NOTBOOK DEPLOY CONSOLE")
-    print(f"  {url}")
+    print(f"  bind  {host}:{port}")
+    print(f"  open  {public}")
+    if os.getenv("CONSOLE_PASSWORD"):
+        print("  auth  ENABLED (CONSOLE_PASSWORD)")
+    else:
+        print("  auth  OFF — set CONSOLE_PASSWORD if public!")
     print("=" * 50)
-    if os.getenv("CONSOLE_NO_BROWSER") != "1":
+    if host in ("127.0.0.1", "localhost") and os.getenv("CONSOLE_NO_BROWSER") != "1":
         try:
-            webbrowser.open(url)
+            webbrowser.open(f"http://127.0.0.1:{port}")
         except Exception:
             pass
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    app.run(host=host, port=port, debug=False, use_reloader=False)
