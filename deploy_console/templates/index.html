@@ -217,6 +217,22 @@
           <button class="btn ghost" id="btn-lib-refresh">REFRESH BOOKS</button>
         </div>
         <pre id="lib-msg" class="msg"></pre>
+
+        <h2>// UPLOAD PROGRESS</h2>
+        <div class="prog-meta">
+          <span id="lib-phase">idle</span>
+          <span id="lib-pct-label">0%</span>
+        </div>
+        <div class="prog-track" aria-label="upload progress">
+          <div class="prog-fill" id="lib-prog-fill" style="width:0%"></div>
+        </div>
+        <div class="prog-meta dim">
+          <span id="lib-counts">0 / 0 chunks</span>
+          <span id="lib-job">job: —</span>
+        </div>
+        <h2>// LIVE LOGS</h2>
+        <pre id="lib-live-log" class="term-block log">// upload log stream</pre>
+
         <h2>// INDEXED BOOKS</h2>
         <pre id="lib-books" class="term-block">// click REFRESH BOOKS</pre>
       </section>

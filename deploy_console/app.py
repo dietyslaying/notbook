@@ -13,7 +13,9 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -848,11 +850,165 @@ def api_artifacts_get(name: str):
     return jsonify({"ok": True, "name": name, "content": path.read_text(encoding="utf-8")})
 
 
+# ---------------------------------------------------------------------------
+# Library upload jobs (background + realtime progress)
+# ---------------------------------------------------------------------------
+
+_upload_jobs: dict[str, dict[str, Any]] = {}
+_upload_lock = threading.Lock()
+_MAX_JOB_LOGS = 500
+
+
+def _job_snapshot(job: dict[str, Any], *, since: int = 0) -> dict[str, Any]:
+    logs = job.get("logs") or []
+    return {
+        "id": job["id"],
+        "status": job["status"],  # queued|running|done|error
+        "phase": job.get("phase") or "",
+        "pct": job.get("pct") if job.get("pct") is not None else 0,
+        "current": job.get("current"),
+        "total": job.get("total"),
+        "display_name": job.get("display_name") or "",
+        "filename": job.get("filename") or "",
+        "message": job.get("message") or "",
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "started_at": job.get("started_at"),
+        "updated_at": job.get("updated_at"),
+        "finished_at": job.get("finished_at"),
+        "log_total": len(logs),
+        "logs": logs[since:],
+        "log_offset": since,
+    }
+
+
+def _append_job_log(job_id: str, event: Any) -> None:
+    now = time.time()
+    if isinstance(event, dict):
+        msg = str(event.get("msg") or "")
+        phase = str(event.get("phase") or "")
+        pct = event.get("pct")
+        current = event.get("current")
+        total = event.get("total")
+    else:
+        msg = str(event)
+        phase = pct = current = total = None
+
+    ts = time.strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    with _upload_lock:
+        job = _upload_jobs.get(job_id)
+        if not job:
+            return
+        job["logs"].append(line)
+        if len(job["logs"]) > _MAX_JOB_LOGS:
+            job["logs"] = job["logs"][-_MAX_JOB_LOGS:]
+        job["message"] = msg
+        job["updated_at"] = now
+        if phase:
+            job["phase"] = phase
+        if pct is not None:
+            try:
+                job["pct"] = float(pct)
+            except (TypeError, ValueError):
+                pass
+        if current is not None:
+            job["current"] = current
+        if total is not None:
+            job["total"] = total
+
+
+def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "notbook_ai"))
+    env = _read_env()
+    for k, v in env.items():
+        if v and k not in os.environ:
+            os.environ[k] = v
+
+    with _upload_lock:
+        job = _upload_jobs.get(job_id)
+        if job:
+            job["status"] = "running"
+            job["started_at"] = time.time()
+            job["updated_at"] = time.time()
+            job["phase"] = "start"
+            job["pct"] = 1
+            job["message"] = "Starting ingest…"
+
+    _append_job_log(job_id, {"msg": f"Job {job_id} started", "phase": "start", "pct": 1})
+    _append_job_log(
+        job_id,
+        {
+            "msg": f"File: {dest.name} → display name: {display_name}",
+            "phase": "start",
+            "pct": 2,
+        },
+    )
+
+    try:
+        from services.ingest import ingest_service
+
+        def progress(event) -> None:
+            _append_job_log(job_id, event)
+
+        result = ingest_service.ingest_pdf(
+            str(dest), display_name, progress=progress, wipe_namespace=True
+        )
+        try:
+            from services.gemini_service import gemini_service
+
+            gemini_service._ns_cache = None
+        except Exception:
+            pass
+
+        with _upload_lock:
+            job = _upload_jobs.get(job_id)
+            if job:
+                job["status"] = "done"
+                job["pct"] = 100
+                job["phase"] = "done"
+                job["result"] = result
+                job["message"] = (
+                    f"OK — {result.get('book')} · {result.get('chunks')} chunks"
+                )
+                job["finished_at"] = time.time()
+                job["updated_at"] = time.time()
+        _append_job_log(
+            job_id,
+            {
+                "msg": (
+                    f"Complete. ns={result.get('namespace')} "
+                    f"index={result.get('index')} chunks={result.get('chunks')}"
+                ),
+                "phase": "done",
+                "pct": 100,
+                "current": result.get("chunks"),
+                "total": result.get("chunks"),
+            },
+        )
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        with _upload_lock:
+            job = _upload_jobs.get(job_id)
+            if job:
+                job["status"] = "error"
+                job["error"] = err
+                job["message"] = err
+                job["finished_at"] = time.time()
+                job["updated_at"] = time.time()
+        _append_job_log(job_id, {"msg": f"ERROR: {err}", "phase": "error"})
+    finally:
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 @app.get("/api/library/books")
 def api_library_books():
     """List Pinecone namespaces as display books for Telegram menu."""
     try:
-        # Ensure project packages importable
         sys.path.insert(0, str(ROOT))
         sys.path.insert(0, str(ROOT / "notbook_ai"))
         from services.library import list_books
@@ -866,65 +1022,87 @@ def api_library_books():
 @app.post("/api/library/upload")
 def api_library_upload():
     """
-    Upload a PDF into Pinecone with a display name (shown in Telegram Books menu).
-    Form fields: file (pdf), display_name (str)
+    Start background PDF ingest. Returns job_id immediately.
+    Poll GET /api/library/upload/<job_id>?since=N for progress + logs.
+    Form: file (pdf), display_name (str)
     """
     try:
-        sys.path.insert(0, str(ROOT))
-        sys.path.insert(0, str(ROOT / "notbook_ai"))
-        # Load .env into process for ingest
-        env = _read_env()
-        for k, v in env.items():
-            if v and k not in os.environ:
-                os.environ[k] = v
-
-        from services.ingest import ingest_service
-
         f = request.files.get("file")
         display_name = (request.form.get("display_name") or "").strip()
         if not f or not f.filename:
             return jsonify({"ok": False, "error": "No PDF file"}), 400
         if not display_name:
-            return jsonify({"ok": False, "error": "display_name required (Telegram book label)"}), 400
+            return jsonify(
+                {"ok": False, "error": "display_name required (Telegram book label)"}
+            ), 400
         if not f.filename.lower().endswith(".pdf"):
             return jsonify({"ok": False, "error": "Only PDF supported"}), 400
 
         tmp_dir = ROOT / "data" / "ingest_tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         safe = secure_filename(f.filename) or "upload.pdf"
-        dest = tmp_dir / f"gui_{int(time.time())}_{safe}"
+        job_id = uuid.uuid4().hex[:12]
+        dest = tmp_dir / f"gui_{job_id}_{safe}"
         f.save(str(dest))
 
-        logs: list[str] = []
+        job = {
+            "id": job_id,
+            "status": "queued",
+            "phase": "queued",
+            "pct": 0,
+            "current": None,
+            "total": None,
+            "display_name": display_name,
+            "filename": safe,
+            "message": "Queued…",
+            "logs": [],
+            "result": None,
+            "error": None,
+            "started_at": None,
+            "updated_at": time.time(),
+            "finished_at": None,
+        }
+        with _upload_lock:
+            # prune old finished jobs (keep last 20)
+            finished = [
+                jid
+                for jid, j in _upload_jobs.items()
+                if j.get("status") in ("done", "error")
+            ]
+            for jid in finished[:-20]:
+                _upload_jobs.pop(jid, None)
+            _upload_jobs[job_id] = job
 
-        def progress(msg: str) -> None:
-            logs.append(msg)
-
-        result = ingest_service.ingest_pdf(
-            str(dest), display_name, progress=progress, wipe_namespace=True
+        t = threading.Thread(
+            target=_run_upload_job,
+            args=(job_id, dest, display_name),
+            daemon=True,
+            name=f"upload-{job_id}",
         )
-        try:
-            from services.gemini_service import gemini_service
+        t.start()
 
-            gemini_service._ns_cache = None
-        except Exception:
-            pass
-        try:
-            dest.unlink(missing_ok=True)
-        except Exception:
-            pass
         return jsonify(
             {
                 "ok": True,
-                "result": result,
-                "log": logs[-30:],
-                "telegram_hint": (
-                    f"In Telegram: Menu → Books → select “{result.get('book')}”"
-                ),
+                "job_id": job_id,
+                "poll": f"/api/library/upload/{job_id}",
+                "message": "Upload started — poll for progress",
             }
         )
     except Exception as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@app.get("/api/library/upload/<job_id>")
+def api_library_upload_status(job_id: str):
+    since = int(request.args.get("since") or 0)
+    with _upload_lock:
+        job = _upload_jobs.get(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "unknown job_id"}), 404
+        snap = _job_snapshot(job, since=max(0, since))
+    snap["ok"] = True
+    return jsonify(snap)
 
 
 @app.get("/api/deploy/guide/<target>")

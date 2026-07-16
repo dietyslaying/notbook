@@ -164,7 +164,74 @@ $("#btn-reload-config")?.addEventListener("click", () => {
     .catch((e) => setMsg("#config-msg", String(e), false));
 });
 
-/* library / pinecone upload */
+/* library / pinecone upload + live progress */
+let _libPollTimer = null;
+let _libLogOffset = 0;
+let _libLogLines = [];
+
+function setLibProgress(job) {
+  const pct = Math.max(0, Math.min(100, Number(job.pct) || 0));
+  const fill = $("#lib-prog-fill");
+  if (fill) fill.style.width = pct + "%";
+  const phase = $("#lib-phase");
+  if (phase) phase.textContent = (job.phase || job.status || "idle").toUpperCase();
+  const pctLabel = $("#lib-pct-label");
+  if (pctLabel) pctLabel.textContent = pct.toFixed(1) + "%";
+  const counts = $("#lib-counts");
+  if (counts) {
+    const cur = job.current != null ? job.current : "—";
+    const tot = job.total != null ? job.total : "—";
+    counts.textContent = `${cur} / ${tot} chunks`;
+  }
+  const jobEl = $("#lib-job");
+  if (jobEl) jobEl.textContent = "job: " + (job.id || "—");
+}
+
+function appendLibLogs(newLines) {
+  if (!newLines || !newLines.length) return;
+  _libLogLines = _libLogLines.concat(newLines);
+  // keep last 400 lines in UI
+  if (_libLogLines.length > 400) {
+    _libLogLines = _libLogLines.slice(-400);
+  }
+  const el = $("#lib-live-log");
+  if (el) {
+    el.textContent = _libLogLines.join("\n");
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function resetLibProgress() {
+  _libLogOffset = 0;
+  _libLogLines = [];
+  setLibProgress({ pct: 0, phase: "idle", current: 0, total: 0, id: "—" });
+  const el = $("#lib-live-log");
+  if (el) el.textContent = "// waiting…";
+}
+
+async function pollLibJob(jobId) {
+  const r = await fetch(
+    `/api/library/upload/${encodeURIComponent(jobId)}?since=${_libLogOffset}`
+  );
+  const data = await r.json();
+  if (!r.ok || data.ok === false) {
+    throw new Error(data.error || r.statusText);
+  }
+  setLibProgress(data);
+  if (data.logs && data.logs.length) {
+    appendLibLogs(data.logs);
+    _libLogOffset = data.log_total || _libLogOffset + data.logs.length;
+  }
+  return data;
+}
+
+function stopLibPoll() {
+  if (_libPollTimer) {
+    clearInterval(_libPollTimer);
+    _libPollTimer = null;
+  }
+}
+
 async function refreshBooks() {
   const r = await api("/api/library/books");
   if (!r.ok) throw new Error(r.error || "list failed");
@@ -202,30 +269,61 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
     setMsg("#lib-msg", "enter display name (shown in Telegram Books)", false);
     return;
   }
-  setMsg("#lib-msg", "uploading & embedding… this can take several minutes");
+  if (_libPollTimer) {
+    setMsg("#lib-msg", "upload already running", false);
+    return;
+  }
+
+  resetLibProgress();
+  setMsg("#lib-msg", "starting background upload…");
+  const btn = $("#btn-lib-upload");
+  if (btn) btn.disabled = true;
+
   const fd = new FormData();
   fd.append("file", file);
   fd.append("display_name", displayName);
+
   try {
     const res = await fetch("/api/library/upload", { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || res.statusText);
-    const r = data.result || {};
-    setMsg(
-      "#lib-msg",
-      [
-        "OK",
-        `book=${r.book}`,
-        `namespace=${r.namespace}`,
-        `index=${r.index}`,
-        `pages=${r.pages} chunks=${r.chunks}`,
-        data.telegram_hint || "",
-        "",
-        ...(data.log || []).slice(-8),
-      ].join("\n")
-    );
-    await refreshBooks();
+    const jobId = data.job_id;
+    setMsg("#lib-msg", `job ${jobId} running — live progress below`);
+    setLibProgress({ id: jobId, pct: 0, phase: "queued", current: 0, total: 0 });
+
+    _libPollTimer = setInterval(async () => {
+      try {
+        const job = await pollLibJob(jobId);
+        if (job.status === "done") {
+          stopLibPoll();
+          if (btn) btn.disabled = false;
+          const r = job.result || {};
+          setMsg(
+            "#lib-msg",
+            [
+              "UPLOAD COMPLETE",
+              `book=${r.book}`,
+              `namespace=${r.namespace}`,
+              `index=${r.index}`,
+              `pages=${r.pages} chunks=${r.chunks}`,
+              `Telegram: Menu → Books → select “${r.book || displayName}”`,
+            ].join("\n")
+          );
+          await refreshBooks();
+        } else if (job.status === "error") {
+          stopLibPoll();
+          if (btn) btn.disabled = false;
+          setMsg("#lib-msg", "FAILED: " + (job.error || job.message), false);
+        }
+      } catch (e) {
+        stopLibPoll();
+        if (btn) btn.disabled = false;
+        setMsg("#lib-msg", String(e), false);
+      }
+    }, 600);
   } catch (e) {
+    stopLibPoll();
+    if (btn) btn.disabled = false;
     setMsg("#lib-msg", String(e), false);
   }
 });
