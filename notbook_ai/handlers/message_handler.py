@@ -1,4 +1,4 @@
-"""Text pipeline: commands, safety, rate limit, intent, RAG, pagination."""
+"""Text pipeline: menus first, then RAG answers (optional book scope)."""
 
 from __future__ import annotations
 
@@ -7,19 +7,19 @@ import html
 import logging
 import re
 import uuid
-from pathlib import Path
 
 from aiogram.types import Message
 
 from config import config
 from db.store import db
+from handlers.menu import main_menu
 from handlers.session_helpers import put_session
 from handlers.telegram_ui import send_screen
 from intent_engine.engine import IntentEngine
 from interfaces import ContentSession, IntentType
 from presentation_engine.component_policy import ComponentPolicy
 from renderer.telegram_renderer import TelegramRenderer
-from services.gemini_service import gemini_service
+from services.library import book_label_for_user
 from services.rate_limiter import RateLimiter
 from services.safety import assess, compose_disclaimer
 from workspaces.base import MedicalWorkspace
@@ -69,9 +69,9 @@ class MessageHandler:
 
         db.ensure_user(user_id)
 
-        # Slash commands
+        # Any slash command → main menu (no command soup)
         if text.startswith("/"):
-            await self._command(message, bot, user_id, text)
+            await send_screen(message, main_menu(user_id))
             return
 
         if not self.rate_limiter.allow(user_id):
@@ -84,153 +84,46 @@ class MessageHandler:
         except Exception:
             pass
 
-        await self._answer_query(message, bot, user_id, text)
+        await self.answer_query(message, bot, user_id, text)
 
-    async def _command(self, message: Message, bot, user_id: int, text: str) -> None:
-        parts = text.split(maxsplit=1)
-        cmd = parts[0].split("@")[0].lower()
-        arg = parts[1].strip() if len(parts) > 1 else ""
-
-        if cmd in ("/start", "/help"):
-            due = db.count_due(user_id)
-            mode = db.get_study_mode(user_id)
-            await message.answer(
-                "<b>Notbook AI</b> — compiled textbook study library\n\n"
-                "Not a doctor. Answers come <b>only</b> from books in this bot's database.\n\n"
-                "<b>Ask</b> any study question in plain text.\n\n"
-                "<b>Commands</b>\n"
-                "/mode — study mode (30s / standard / exam / ward)\n"
-                "/bookmarks — saved topics\n"
-                "/recent — continue studying\n"
-                f"/review — flashcards due ({due})\n"
-                "/cards — card count\n"
-                "/help — this message\n\n"
-                f"Current mode: <b>{_esc(mode)}</b>\n\n"
-                f"<blockquote>{_esc(self.bot_cfg.get('library_framing') or '')}</blockquote>",
-                parse_mode="HTML",
-            )
-            return
-
-        if cmd == "/mode":
-            await self._cmd_mode(message, user_id, arg)
-            return
-        if cmd == "/bookmarks":
-            await self._cmd_bookmarks(message, user_id)
-            return
-        if cmd == "/recent":
-            await self._cmd_recent(message, user_id)
-            return
-        if cmd in ("/review", "/cards"):
-            await self._cmd_review(message, user_id, list_only=(cmd == "/cards"))
-            return
-        if cmd == "/ingest":
-            await message.answer(
-                "Admin: send a PDF as a document with caption:\n"
-                "<code>ingest Book Name Here</code>\n"
-                "Your Telegram user id must be in ADMIN_USER_IDS.",
-                parse_mode="HTML",
-            )
-            return
-
-        await message.answer("Unknown command. Try /help")
-
-    async def _cmd_mode(self, message: Message, user_id: int, arg: str) -> None:
-        modes = config.raw_config.get("study_modes") or {}
-        if not arg:
-            cur = db.get_study_mode(user_id)
-            lines = ["<b>Study modes</b>", f"Current: <b>{_esc(cur)}</b>", ""]
-            for key, meta in modes.items():
-                label = (meta or {}).get("label") or key
-                lines.append(f"• <code>/mode {key}</code> — {_esc(label)}")
-            lines.append("")
-            lines.append("Modes change how tightly the library answer is packed.")
-            await message.answer("\n".join(lines), parse_mode="HTML")
-            return
-        key = arg.strip().lower()
-        if key not in ("brief", "standard", "exam", "ward"):
-            await message.answer("Use: brief | standard | exam | ward")
-            return
-        db.set_study_mode(user_id, key)
-        label = (modes.get(key) or {}).get("label") or key
-        await message.answer(f"Mode set to <b>{_esc(label)}</b>.", parse_mode="HTML")
-
-    async def _cmd_bookmarks(self, message: Message, user_id: int) -> None:
-        items = db.list_bookmarks(user_id)
-        if not items:
-            await message.answer("No bookmarks yet. Open a topic and tap Save.")
-            return
-        lines = ["<b>Bookmarks</b>", ""]
-        for i, b in enumerate(items, 1):
-            lines.append(f"{i}. <b>{_esc(b['title'])}</b>")
-            lines.append(f"   <code>{_esc(b['query'][:80])}</code>")
-        lines.append("")
-        lines.append("Re-ask the query text, or use /recent for latest topics.")
-        await message.answer("\n".join(lines), parse_mode="HTML")
-
-    async def _cmd_recent(self, message: Message, user_id: int) -> None:
-        items = db.list_recent(user_id)
-        if not items:
-            await message.answer("No recent topics yet. Ask something to start.")
-            return
-        lines = ["<b>Continue studying</b>", ""]
-        for i, r in enumerate(items, 1):
-            lines.append(f"{i}. <b>{_esc(r['title'])}</b>")
-            lines.append(f"   {_esc(r['query'][:100])}")
-        lines.append("")
-        lines.append("Copy a query line and send it again to reopen.")
-        await message.answer("\n".join(lines), parse_mode="HTML")
-
-    async def _cmd_review(self, message: Message, user_id: int, list_only: bool = False) -> None:
-        total = db.count_cards(user_id)
-        due_n = db.count_due(user_id)
-        if list_only:
-            await message.answer(
-                f"You have <b>{total}</b> cards · <b>{due_n}</b> due.\n"
-                "Use /review to study.",
-                parse_mode="HTML",
-            )
-            return
-        cards = db.due_cards(user_id, limit=1)
-        if not cards:
-            await message.answer(
-                f"No cards due. Library total: {total}.\n"
-                "Open a topic → Cards to generate flashcards from the books."
-            )
-            return
-        card = cards[0]
-        screen = TelegramRenderer.render_flashcard(
-            card["front"],
-            card_id=int(card["id"]),
-            remaining=due_n,
-            revealed=False,
-        )
-        await send_screen(message, screen)
-
-    async def _answer_query(self, message: Message, bot, user_id: int, query: str) -> None:
+    async def answer_query(
+        self, message: Message, bot, user_id: int, query: str
+    ) -> None:
+        """Public so callbacks can re-ask bookmark/recent queries."""
         safety = assess(query)
         study_mode = db.get_study_mode(user_id)
+        preferred_ns = db.get_preferred_namespace(user_id)
+        namespaces = [preferred_ns] if preferred_ns else None
         disclaimer = compose_disclaimer(
             safety,
             str(self.bot_cfg.get("disclaimer") or ""),
         )
+        book_line = book_label_for_user(user_id)
 
         try:
             intent = await self.intent_engine.classify(query)
-            logger.info("user=%s intent=%s mode=%s q=%r", user_id, intent.value, study_mode, query[:80])
+            logger.info(
+                "user=%s intent=%s mode=%s book=%s q=%r",
+                user_id,
+                intent.value,
+                study_mode,
+                preferred_ns or "*",
+                query[:80],
+            )
 
+            ws_kwargs = {"study_mode": study_mode, "namespaces": namespaces}
             if intent == IntentType.DISEASE:
-                ndm = await self.disease_ws.process(query, study_mode=study_mode)
+                ndm = await self.disease_ws.process(query, **ws_kwargs)
             elif intent == IntentType.DRUG:
-                ndm = await self.drug_ws.process(query, study_mode=study_mode)
+                ndm = await self.drug_ws.process(query, **ws_kwargs)
             elif intent == IntentType.COMPARISON:
-                ndm = await self.comparison_ws.process(query, study_mode=study_mode)
+                ndm = await self.comparison_ws.process(query, **ws_kwargs)
             elif intent == IntentType.STUDY:
-                ndm = await self.study_ws.process(query, study_mode=study_mode)
+                ndm = await self.study_ws.process(query, **ws_kwargs)
             else:
-                ndm = await self.fallback_ws.process(query, study_mode=study_mode)
+                ndm = await self.fallback_ws.process(query, **ws_kwargs)
 
             if "error" in ndm:
-                # Even on miss: show safety banner if needed
                 err = ndm["error"]
                 if safety.banner:
                     err = safety.banner + "\n\n" + err
@@ -241,14 +134,24 @@ class MessageHandler:
                     page_count=1,
                     has_details=False,
                 )
+                # Attach menu on errors
+                screen.inline_keyboard = [
+                    [{"text": "Books", "callback_data": "menu:books"}],
+                    [{"text": "Menu", "callback_data": "menu:main"}],
+                ]
                 await send_screen(message, screen)
                 return
+
+            # Tag mode line with active book
+            mode_label = _MODE_LABELS.get(study_mode, "")
+            if book_line:
+                mode_label = f"{mode_label} · {book_line}".strip(" ·")
 
             pages = ComponentPolicy.build_pages(
                 ndm,
                 disclaimer=disclaimer,
                 emergency_banner=safety.banner,
-                mode_label=_MODE_LABELS.get(study_mode, ""),
+                mode_label=mode_label,
             )
             concept_id = _concept_id(user_id, query)
             has_details = any(p.get("kind") == "section" for p in pages)
@@ -291,26 +194,34 @@ class MessageHandler:
 
         except Exception:
             logger.exception("Message handling failed for user=%s", user_id)
-            await message.answer("Something went wrong on my side. Please try again in a moment.")
+            await message.answer(
+                "Something went wrong on my side. Please try again in a moment."
+            )
 
     async def handle_document(self, message: Message, bot) -> None:
-        """Admin PDF ingest via document + caption 'ingest Book Name'."""
+        """Admin PDF ingest: caption 'ingest Book Name' OR just book name for admins."""
         user = message.from_user
         user_id = user.id if user else 0
         if user_id not in config.admin_user_ids:
-            await message.answer("Ingest is admin-only. Set ADMIN_USER_IDS.")
+            await message.answer(
+                "PDF ingest is admin-only.\nUse Deploy Console → Library, or set ADMIN_USER_IDS."
+            )
             return
         doc = message.document
         if not doc:
             return
         caption = (message.caption or "").strip()
-        m = re.match(r"(?i)^ingest\s+(.+)$", caption)
+        m = re.match(r"(?i)^(?:ingest\s+)?(.+)$", caption) if caption else None
         if not m:
             await message.answer(
-                "Caption must be: <code>ingest Book Name</code>", parse_mode="HTML"
+                "Send a PDF with caption = <b>display name</b> for Telegram library.\n"
+                "Example: <code>Murtagh General Practice</code>",
+                parse_mode="HTML",
             )
             return
         book_name = m.group(1).strip()
+        if book_name.lower().startswith("ingest "):
+            book_name = book_name[7:].strip()
         if not (doc.file_name or "").lower().endswith(".pdf"):
             await message.answer("Send a PDF file.")
             return
@@ -320,30 +231,32 @@ class MessageHandler:
         tmp_dir.mkdir(parents=True, exist_ok=True)
         dest = tmp_dir / f"{user_id}_{doc.file_unique_id}.pdf"
         try:
+            import asyncio
+
             await bot.download(doc, destination=dest)
+            from services.gemini_service import gemini_service
             from services.ingest import ingest_service
 
-            updates: list[str] = []
-
-            def progress(msg: str) -> None:
-                updates.append(msg)
-
-            result = await bot.loop.run_in_executor(
-                None,
+            result = await asyncio.to_thread(
                 lambda: ingest_service.ingest_pdf(
-                    str(dest), book_name, progress=progress, wipe_namespace=True
-                ),
+                    str(dest), book_name, wipe_namespace=True
+                )
             )
+            gemini_service._ns_cache = None
             await message.answer(
                 f"Done.\n"
-                f"Book: <b>{_esc(result['book'])}</b>\n"
+                f"Display name: <b>{_esc(result['book'])}</b>\n"
                 f"Namespace: <code>{_esc(result['namespace'])}</code>\n"
-                f"Pages: {result['pages']} · Chunks: {result['chunks']}",
+                f"Index: <code>{_esc(result.get('index') or '')}</code>\n"
+                f"Pages: {result['pages']} · Chunks: {result['chunks']}\n\n"
+                f"Users: Menu → Books to select it.",
                 parse_mode="HTML",
             )
         except Exception as e:
             logger.exception("Ingest failed")
-            await message.answer(f"Ingest failed: {_esc(type(e).__name__)}: {_esc(str(e)[:300])}")
+            await message.answer(
+                f"Ingest failed: {_esc(type(e).__name__)}: {_esc(str(e)[:300])}"
+            )
         finally:
             try:
                 dest.unlink(missing_ok=True)

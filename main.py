@@ -52,8 +52,13 @@ cb_handler = CallbackHandler()
 
 @dp.message(CommandStart())
 async def start_cmd(message: Message) -> None:
-    if message.text:
-        await msg_handler.handle(message, bot)
+    from handlers.menu import main_menu
+    from handlers.telegram_ui import send_screen
+    from db.store import db
+
+    uid = message.from_user.id if message.from_user else 0
+    db.ensure_user(uid)
+    await send_screen(message, main_menu(uid))
 
 
 @dp.message(F.document)

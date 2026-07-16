@@ -19,6 +19,7 @@
       <button data-tab="status" class="active">STATUS</button>
       <button data-tab="secrets">SECRETS</button>
       <button data-tab="config">CONFIG</button>
+      <button data-tab="library">LIBRARY</button>
       <button data-tab="local">LOCAL</button>
       <button data-tab="deploy">DEPLOY</button>
       <button data-tab="artifacts">ARTIFACTS</button>
@@ -187,6 +188,30 @@
           <button class="btn ghost" id="btn-reload-config">RELOAD</button>
         </div>
         <pre id="config-msg" class="msg"></pre>
+      </section>
+
+      <!-- LIBRARY / PINECONE UPLOAD -->
+      <section id="tab-library" class="panel">
+        <h2>// LIBRARY  (Pinecone → Telegram Books)</h2>
+        <p class="hint">
+          Upload a PDF with a <b>display name</b>. That name appears in Telegram: Menu → Books.
+          Namespace becomes <code>global|&lt;Display Name&gt;</code>. Re-upload replaces that book.
+        </p>
+        <form id="form-library" class="form-grid" enctype="multipart/form-data">
+          <label>PDF file
+            <input type="file" name="file" id="lib-file" accept=".pdf,application/pdf" />
+          </label>
+          <label>Display name (Telegram)
+            <input type="text" name="display_name" id="lib-name" placeholder="Murtagh General Practice" autocomplete="off" />
+          </label>
+        </form>
+        <div class="row">
+          <button class="btn" id="btn-lib-upload">UPLOAD TO PINECONE</button>
+          <button class="btn ghost" id="btn-lib-refresh">REFRESH BOOKS</button>
+        </div>
+        <pre id="lib-msg" class="msg"></pre>
+        <h2>// INDEXED BOOKS</h2>
+        <pre id="lib-books" class="term-block">// click REFRESH BOOKS</pre>
       </section>
 
       <!-- LOCAL -->

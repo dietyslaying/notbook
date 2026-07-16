@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request
+from werkzeug.utils import secure_filename
 
 ROOT = Path(__file__).resolve().parent.parent
 CONSOLE = Path(__file__).resolve().parent
@@ -541,6 +542,85 @@ def api_artifacts_get(name: str):
     if not path.is_file():
         return jsonify({"ok": False, "error": "not found"}), 404
     return jsonify({"ok": True, "name": name, "content": path.read_text(encoding="utf-8")})
+
+
+@app.get("/api/library/books")
+def api_library_books():
+    """List Pinecone namespaces as display books for Telegram menu."""
+    try:
+        # Ensure project packages importable
+        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT / "notbook_ai"))
+        from services.library import list_books
+
+        books = list_books()
+        return jsonify({"ok": True, "books": books, "count": len(books)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "books": []}), 500
+
+
+@app.post("/api/library/upload")
+def api_library_upload():
+    """
+    Upload a PDF into Pinecone with a display name (shown in Telegram Books menu).
+    Form fields: file (pdf), display_name (str)
+    """
+    try:
+        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT / "notbook_ai"))
+        # Load .env into process for ingest
+        env = _read_env()
+        for k, v in env.items():
+            if v and k not in os.environ:
+                os.environ[k] = v
+
+        from services.ingest import ingest_service
+
+        f = request.files.get("file")
+        display_name = (request.form.get("display_name") or "").strip()
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "No PDF file"}), 400
+        if not display_name:
+            return jsonify({"ok": False, "error": "display_name required (Telegram book label)"}), 400
+        if not f.filename.lower().endswith(".pdf"):
+            return jsonify({"ok": False, "error": "Only PDF supported"}), 400
+
+        tmp_dir = ROOT / "data" / "ingest_tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        safe = secure_filename(f.filename) or "upload.pdf"
+        dest = tmp_dir / f"gui_{int(time.time())}_{safe}"
+        f.save(str(dest))
+
+        logs: list[str] = []
+
+        def progress(msg: str) -> None:
+            logs.append(msg)
+
+        result = ingest_service.ingest_pdf(
+            str(dest), display_name, progress=progress, wipe_namespace=True
+        )
+        try:
+            from services.gemini_service import gemini_service
+
+            gemini_service._ns_cache = None
+        except Exception:
+            pass
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return jsonify(
+            {
+                "ok": True,
+                "result": result,
+                "log": logs[-30:],
+                "telegram_hint": (
+                    f"In Telegram: Menu → Books → select “{result.get('book')}”"
+                ),
+            }
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @app.get("/api/deploy/guide/<target>")

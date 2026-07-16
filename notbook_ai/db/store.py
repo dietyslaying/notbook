@@ -31,6 +31,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
                     study_mode TEXT NOT NULL DEFAULT 'standard',
+                    preferred_namespace TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -89,19 +90,29 @@ class Database:
                 """
             )
             self._conn.commit()
+            # Lightweight migrations for older DBs
+            cols = {
+                r[1]
+                for r in self._conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if "preferred_namespace" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE users ADD COLUMN preferred_namespace TEXT NOT NULL DEFAULT ''"
+                )
+                self._conn.commit()
 
     def _now(self) -> float:
         return time.time()
 
-    # --- users / study mode ---
+    # --- users / study mode / book ---
 
     def ensure_user(self, user_id: int) -> None:
         now = self._now()
         with self._lock:
             self._conn.execute(
                 """
-                INSERT INTO users (user_id, study_mode, created_at, updated_at)
-                VALUES (?, 'standard', ?, ?)
+                INSERT INTO users (user_id, study_mode, preferred_namespace, created_at, updated_at)
+                VALUES (?, 'standard', '', ?, ?)
                 ON CONFLICT(user_id) DO NOTHING
                 """,
                 (user_id, now, now),
@@ -121,16 +132,36 @@ class Database:
         if mode not in ("brief", "standard", "exam", "ward"):
             raise ValueError(f"Invalid study mode: {mode}")
         now = self._now()
+        self.ensure_user(user_id)
         with self._lock:
             self._conn.execute(
                 """
-                INSERT INTO users (user_id, study_mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    study_mode = excluded.study_mode,
-                    updated_at = excluded.updated_at
+                UPDATE users SET study_mode = ?, updated_at = ?
+                WHERE user_id = ?
                 """,
-                (user_id, mode, now, now),
+                (mode, now, user_id),
+            )
+            self._conn.commit()
+
+    def get_preferred_namespace(self, user_id: int) -> str:
+        self.ensure_user(user_id)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT preferred_namespace FROM users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return (row["preferred_namespace"] if row else "") or ""
+
+    def set_preferred_namespace(self, user_id: int, namespace: str) -> None:
+        now = self._now()
+        self.ensure_user(user_id)
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE users SET preferred_namespace = ?, updated_at = ?
+                WHERE user_id = ?
+                """,
+                (namespace or "", now, user_id),
             )
             self._conn.commit()
 

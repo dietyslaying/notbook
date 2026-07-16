@@ -464,25 +464,34 @@ Preferred source_citation if model is unsure: {source_hint or "Textbook excerpt"
         user_query: str,
         intent: IntentType = IntentType.UNKNOWN,
         study_mode: str = "standard",
+        namespaces: list[str] | None = None,
     ) -> dict:
         study_mode = (
             study_mode if study_mode in ("brief", "standard", "exam", "ward") else "standard"
         )
         mode = self._mode_cfg(study_mode)
         faith_on = bool(self.faith_cfg.get("enabled", True))
+        ns_key = ",".join(namespaces) if namespaces else "*"
         cache_key = hashlib.sha256(
-            f"{self.model_name}|{intent.value}|{study_mode}|faith{int(faith_on)}|{user_query.strip().lower()}".encode()
+            f"{self.model_name}|{intent.value}|{study_mode}|{ns_key}|faith{int(faith_on)}|{user_query.strip().lower()}".encode()
         ).hexdigest()
         cached = self.cache.get(cache_key)
         if cached:
             return cached
 
-        context, source_hint, citations = await self.retrieve(user_query)
+        context, source_hint, citations = await self.retrieve(
+            user_query, namespaces=namespaces
+        )
         if not context:
+            scope = (
+                "the selected book"
+                if namespaces
+                else "the indexed textbooks in this library"
+            )
             return {
                 "error": (
-                    "I couldn't find this in the indexed textbooks in this library. "
-                    "Try different wording or a more specific term."
+                    f"I couldn't find this in {scope}. "
+                    "Try different wording, another book from the menu, or re-ingest."
                 )
             }
 

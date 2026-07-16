@@ -1,4 +1,4 @@
-"""Callbacks: pagination, deep dive, quiz, bookmarks, cards, SRS review."""
+"""Callbacks: menus, book select, mode, pagination, quiz, cards, SRS."""
 
 from __future__ import annotations
 
@@ -9,11 +9,17 @@ from aiogram.types import CallbackQuery
 
 from config import config
 from db.store import db
-from handlers.session_helpers import get_session, put_session
+from handlers.menu import menu_for
+from handlers.session_helpers import get_session
 from handlers.telegram_ui import edit_screen, send_screen
 from presentation_engine.component_policy import ComponentPolicy
 from renderer.telegram_renderer import TelegramRenderer
 from services.gemini_service import gemini_service
+from services.library import (
+    book_label_for_user,
+    display_name_from_namespace,
+    resolve_namespace_token,
+)
 from services.safety import assess, compose_disclaimer
 from services.srs import sm2_review
 
@@ -37,7 +43,17 @@ class CallbackHandler:
             return
 
         try:
-            if data.startswith("pg:"):
+            if data.startswith("menu:"):
+                await self._menu(callback, data, user_id)
+            elif data.startswith("setbook:"):
+                await self._set_book(callback, data, user_id)
+            elif data.startswith("setmode:"):
+                await self._set_mode(callback, data, user_id)
+            elif data.startswith("reask:"):
+                await self._reask_bookmark(callback, data, user_id)
+            elif data.startswith("reask_r:"):
+                await self._reask_recent(callback, data, user_id)
+            elif data.startswith("pg:"):
                 await self._paginate(callback, data, user_id)
             elif data.startswith("deep:"):
                 await self._deep_dive(callback, data, user_id)
@@ -61,15 +77,101 @@ class CallbackHandler:
             logger.exception("Callback failed data=%r", data)
             await callback.answer("Action failed. Try again.", show_alert=True)
 
-    def _pages_for(self, session) -> list[dict]:
+    async def _menu(self, callback: CallbackQuery, data: str, user_id: int) -> None:
+        screen_id = data.split(":", 1)[1] if ":" in data else "main"
+        if screen_id == "review":
+            await self._start_review(callback, user_id)
+            return
+        screen = menu_for(screen_id, user_id)
+        await edit_screen(callback, screen)
+        await callback.answer()
+
+    async def _set_book(self, callback: CallbackQuery, data: str, user_id: int) -> None:
+        token = data.split(":", 1)[1]
+        if token == "all":
+            db.set_preferred_namespace(user_id, "")
+            label = "All books"
+        else:
+            ns = resolve_namespace_token(token)
+            if ns is None:
+                await callback.answer("Book not found — reopen Books menu.", show_alert=True)
+                return
+            db.set_preferred_namespace(user_id, ns)
+            label = display_name_from_namespace(ns)
+        await callback.answer(f"Book: {label}")
+        await edit_screen(callback, menu_for("books", user_id))
+
+    async def _set_mode(self, callback: CallbackQuery, data: str, user_id: int) -> None:
+        mode = data.split(":", 1)[1]
+        if mode not in ("brief", "standard", "exam", "ward"):
+            await callback.answer("Bad mode", show_alert=True)
+            return
+        db.set_study_mode(user_id, mode)
+        await callback.answer(f"Mode: {mode}")
+        await edit_screen(callback, menu_for("mode", user_id))
+
+    async def _reask_bookmark(
+        self, callback: CallbackQuery, data: str, user_id: int
+    ) -> None:
+        idx = int(data.split(":")[1])
+        items = db.list_bookmarks(user_id, limit=20)
+        if idx < 0 or idx >= len(items):
+            await callback.answer("Gone", show_alert=True)
+            return
+        query = items[idx]["query"]
+        await callback.answer("Loading…")
+        from handlers.message_handler import MessageHandler
+
+        # Reuse pipeline via a fake message answer path
+        mh = MessageHandler()
+        await mh.answer_query(callback.message, callback.bot, user_id, query)
+
+    async def _reask_recent(
+        self, callback: CallbackQuery, data: str, user_id: int
+    ) -> None:
+        idx = int(data.split(":")[1])
+        items = db.list_recent(user_id, limit=15)
+        if idx < 0 or idx >= len(items):
+            await callback.answer("Gone", show_alert=True)
+            return
+        query = items[idx]["query"]
+        await callback.answer("Loading…")
+        from handlers.message_handler import MessageHandler
+
+        mh = MessageHandler()
+        await mh.answer_query(callback.message, callback.bot, user_id, query)
+
+    async def _start_review(self, callback: CallbackQuery, user_id: int) -> None:
+        cards = db.due_cards(user_id, limit=1)
+        due_n = db.count_due(user_id)
+        if not cards:
+            await callback.answer("No cards due", show_alert=True)
+            screen = menu_for("main", user_id)
+            await edit_screen(callback, screen)
+            return
+        card = cards[0]
+        screen = TelegramRenderer.render_flashcard(
+            card["front"],
+            card_id=int(card["id"]),
+            remaining=due_n,
+            revealed=False,
+        )
+        await edit_screen(callback, screen)
+        await callback.answer("Review")
+
+    def _pages_for(self, session):
         safety = assess(session.query)
         bot_cfg = config.raw_config.get("bot") or {}
         disclaimer = compose_disclaimer(safety, str(bot_cfg.get("disclaimer") or ""))
+        book = book_label_for_user(session.user_id)
+        mode_label = _MODE_LABELS.get(session.study_mode, "")
+        if book:
+            mode_label = f"{mode_label} · {book}".strip(" ·")
         return ComponentPolicy.build_pages(
             session.raw_ndm,
             disclaimer=disclaimer,
             emergency_banner=safety.banner,
-            mode_label=_MODE_LABELS.get(session.study_mode, ""),
+            mode_label=mode_label,
         )
 
     async def _paginate(self, callback: CallbackQuery, data: str, user_id: int) -> None:
@@ -114,7 +216,6 @@ class CallbackHandler:
                 target = i
                 break
         else:
-            # Prefer citations page if present
             for i, p in enumerate(pages):
                 if p.get("kind") == "citations":
                     target = i
@@ -133,7 +234,9 @@ class CallbackHandler:
         await edit_screen(callback, screen)
         await callback.answer("Deep dive")
 
-    async def _show_citations(self, callback: CallbackQuery, data: str, user_id: int) -> None:
+    async def _show_citations(
+        self, callback: CallbackQuery, data: str, user_id: int
+    ) -> None:
         cid = data.split(":", 1)[1]
         session = get_session(cid, user_id)
         if not session:
@@ -172,7 +275,6 @@ class CallbackHandler:
         else:
             db.add_bookmark(user_id, cid, session.title, session.query)
             await callback.answer("Saved to bookmarks")
-        # Refresh overview buttons
         pages = self._pages_for(session)
         screen = TelegramRenderer.render_page(
             pages[0],
@@ -190,7 +292,7 @@ class CallbackHandler:
         if not session:
             await callback.answer("Topic expired.", show_alert=True)
             return
-        await callback.answer("Building cards from library text…")
+        await callback.answer("Building cards…")
         ndm = session.raw_ndm or {}
         cards = await gemini_service.generate_flashcards(
             title=session.title,
@@ -199,16 +301,12 @@ class CallbackHandler:
             sections=list(ndm.get("detail_sections") or []),
         )
         if not cards:
-            # deterministic fallback from facts
             cards = [{"front": f"{session.title}?", "back": f} for f in session.facts[:3]]
         n = db.add_flashcards_bulk(
-            user_id,
-            cards,
-            concept_id=cid,
-            source=session.source,
+            user_id, cards, concept_id=cid, source=session.source
         )
         await callback.message.answer(
-            f"Added <b>{n}</b> flashcards from this topic.\nUse /review to study due cards.",
+            f"Added <b>{n}</b> flashcards.\nMenu → Review when due.",
             parse_mode="HTML",
         )
 
@@ -245,7 +343,9 @@ class CallbackHandler:
         )
         await send_screen(callback.message, screen)
 
-    async def _quiz_answer(self, callback: CallbackQuery, data: str, user_id: int) -> None:
+    async def _quiz_answer(
+        self, callback: CallbackQuery, data: str, user_id: int
+    ) -> None:
         parts = data.split(":")
         if len(parts) != 4:
             await callback.answer("Bad quiz link", show_alert=True)
@@ -253,7 +353,7 @@ class CallbackHandler:
         _, cid_short, token, idx_s = parts
         state = db.load_quiz(token)
         if not state or state.get("user_id") != user_id:
-            await callback.answer("Quiz expired. Tap Quiz me again.", show_alert=True)
+            await callback.answer("Quiz expired.", show_alert=True)
             return
         try:
             chosen = int(idx_s)
@@ -288,7 +388,6 @@ class CallbackHandler:
         await callback.answer()
 
     async def _fc_rate(self, callback: CallbackQuery, data: str, user_id: int) -> None:
-        # fcr:{id}:{quality}
         parts = data.split(":")
         if len(parts) != 3:
             await callback.answer("Bad rating", show_alert=True)
@@ -313,22 +412,11 @@ class CallbackHandler:
             repetitions=result.repetitions,
             due_at=result.due_at,
         )
-        # Next due card
         nxt = db.due_cards(user_id, limit=1)
         due_n = db.count_due(user_id)
         if not nxt:
-            try:
-                await callback.message.edit_text(
-                    "<b>Review complete</b>\n\n"
-                    "No more cards due.\n"
-                    f"Last card next interval: {result.interval_days:.1f} days.",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                await callback.message.answer(
-                    f"Review complete. Last interval: {result.interval_days:.1f} days."
-                )
-            await callback.answer("Saved")
+            await edit_screen(callback, menu_for("main", user_id))
+            await callback.answer("Review complete")
             return
         c = nxt[0]
         screen = TelegramRenderer.render_flashcard(

@@ -161,6 +161,7 @@ class TelegramRenderer:
                     {"text": "Cite", "callback_data": f"cite:{cid}"},
                 ]
             )
+            rows.append([{"text": "Menu", "callback_data": "menu:main"}])
 
         return rows
 

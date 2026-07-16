@@ -162,6 +162,72 @@ $("#btn-reload-config")?.addEventListener("click", () => {
     .catch((e) => setMsg("#config-msg", String(e), false));
 });
 
+/* library / pinecone upload */
+async function refreshBooks() {
+  const r = await api("/api/library/books");
+  if (!r.ok) throw new Error(r.error || "list failed");
+  const lines = [
+    `COUNT  ${r.count}`,
+    ``,
+    ...(r.books || []).map(
+      (b) =>
+        `• ${b.display_name}\n  ns=${b.namespace}\n  vectors=${b.vectors ?? "?"}  token=${b.token}`
+    ),
+  ];
+  if (!(r.books || []).length) {
+    lines.push("(empty — upload a PDF above)");
+  }
+  $("#lib-books").textContent = lines.join("\n");
+}
+
+$("#btn-lib-refresh")?.addEventListener("click", () => {
+  refreshBooks()
+    .then(() => setMsg("#lib-msg", "books refreshed"))
+    .catch((e) => setMsg("#lib-msg", String(e), false));
+});
+
+$("#btn-lib-upload")?.addEventListener("click", async (ev) => {
+  ev.preventDefault();
+  const fileInput = $("#lib-file");
+  const nameInput = $("#lib-name");
+  const file = fileInput?.files?.[0];
+  const displayName = (nameInput?.value || "").trim();
+  if (!file) {
+    setMsg("#lib-msg", "choose a PDF", false);
+    return;
+  }
+  if (!displayName) {
+    setMsg("#lib-msg", "enter display name (shown in Telegram Books)", false);
+    return;
+  }
+  setMsg("#lib-msg", "uploading & embedding… this can take several minutes");
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("display_name", displayName);
+  try {
+    const res = await fetch("/api/library/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || res.statusText);
+    const r = data.result || {};
+    setMsg(
+      "#lib-msg",
+      [
+        "OK",
+        `book=${r.book}`,
+        `namespace=${r.namespace}`,
+        `index=${r.index}`,
+        `pages=${r.pages} chunks=${r.chunks}`,
+        data.telegram_hint || "",
+        "",
+        ...(data.log || []).slice(-8),
+      ].join("\n")
+    );
+    await refreshBooks();
+  } catch (e) {
+    setMsg("#lib-msg", String(e), false);
+  }
+});
+
 /* local */
 $("#btn-start")?.addEventListener("click", async () => {
   try {
@@ -262,3 +328,4 @@ refreshStatus().catch(() => {});
 loadSecrets(false).catch(() => {});
 loadConfig().catch(() => {});
 listArtifacts().catch(() => {});
+refreshBooks().catch(() => {});
