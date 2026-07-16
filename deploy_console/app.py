@@ -1250,13 +1250,24 @@ def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
 
     def heartbeat() -> None:
         n = 0
-        while not stop_heartbeat.wait(15):
+        while not stop_heartbeat.wait(20):
             n += 1
+            with _upload_lock:
+                job = _upload_jobs.get(job_id)
+                phase = (job or {}).get("phase") or "running"
+                pct = (job or {}).get("pct")
+                cur = (job or {}).get("current")
+                tot = (job or {}).get("total")
             _append_job_log(
                 job_id,
                 {
-                    "msg": f"…still working (heartbeat #{n})",
-                    "phase": "running",
+                    "msg": (
+                        f"…still working (heartbeat #{n}"
+                        + (f" · {pct:.0f}%" if isinstance(pct, (int, float)) else "")
+                        + (f" · {cur}/{tot}" if cur is not None and tot else "")
+                        + ")"
+                    ),
+                    "phase": phase if phase not in ("done", "error") else "running",
                 },
             )
 

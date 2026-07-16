@@ -432,7 +432,7 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
       } finally {
         pollBusy = false;
       }
-    }, 800);
+    }, 2000); // 2s — heavy embed jobs + free hosts choke on sub-second polling
   } catch (e) {
     stopLibPoll();
     if (btn) btn.disabled = false;

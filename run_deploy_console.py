@@ -10,6 +10,10 @@ Render / cloud (Web Service — NOT Static Site):
   Env:    PORT (auto), CONSOLE_PASSWORD (required recommended), secrets…
 
   Bot service uses requirements.txt; console uses requirements-console.txt.
+
+Production uses Waitress (not Flask's built-in server). The dev server +
+background PDF embed + aggressive polling was crashing with heap corruption
+(malloc_consolidate) on Render free tier.
 """
 
 from __future__ import annotations
@@ -36,10 +40,22 @@ except ImportError:
         )
     else:
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0"]
+            [sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0", "waitress>=3.0.0"]
         )
 
 from app import app, _ensure_dirs  # noqa: E402
+
+
+def _use_waitress() -> bool:
+    # Prefer Waitress on Render / Docker / any non-local bind
+    if os.getenv("CONSOLE_USE_FLASK_DEV", "").strip() in ("1", "true", "yes"):
+        return False
+    if os.getenv("RENDER") or os.getenv("PORT"):
+        return True
+    if os.getenv("CONSOLE_USE_WAITRESS", "1").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return False
+
 
 if __name__ == "__main__":
     _ensure_dirs()
@@ -48,6 +64,7 @@ if __name__ == "__main__":
     # 0.0.0.0 required for Render / Docker; 127.0.0.1 only for local-only mode
     host = os.getenv("CONSOLE_HOST", "0.0.0.0")
     public = os.getenv("RENDER_EXTERNAL_URL") or f"http://127.0.0.1:{port}"
+    threads = int(os.getenv("CONSOLE_THREADS") or "6")
     print("=" * 50)
     print("  NOTBOOK DEPLOY CONSOLE")
     print(f"  bind  {host}:{port}")
@@ -62,4 +79,25 @@ if __name__ == "__main__":
             webbrowser.open(f"http://127.0.0.1:{port}")
         except Exception:
             pass
-    app.run(host=host, port=port, debug=False, use_reloader=False)
+
+    if _use_waitress():
+        try:
+            from waitress import serve
+        except ImportError:
+            print("waitress missing — pip install waitress; falling back to Flask dev server")
+            app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+        else:
+            print(f"  server  Waitress (threads={threads})")
+            # channel_timeout high: long-running status polls while embed holds GIL
+            serve(
+                app,
+                host=host,
+                port=port,
+                threads=threads,
+                channel_timeout=300,
+                connection_limit=100,
+                ident="notbook-console",
+            )
+    else:
+        print("  server  Flask development (CONSOLE_USE_FLASK_DEV=1)")
+        app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)

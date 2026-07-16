@@ -6,6 +6,7 @@
 # Python 3.11 recommended (runtime.txt).
 
 flask>=3.0.0
+waitress>=3.0.0
 pyyaml==6.0.2
 python-dotenv==1.0.1
 google-genai>=1.0.0
