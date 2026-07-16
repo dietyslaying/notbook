@@ -56,6 +56,10 @@ faithfulness:
 bot:
   rate_limit_per_minute: 8
   max_message_chars: 3800
+  # Telegram Bot API 10.1+ native rich messages (headings, lists, tables, details…)
+  rich_messages: true
+  # Live draft bubble while answering (private chats only; final message still required)
+  stream_drafts: true
   # Library framing (always shown). Not a clinician — textbook compiler only.
   library_framing: >
     Notbook is not a doctor or medical professional.

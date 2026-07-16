@@ -83,6 +83,8 @@ class UIComponent(BaseModel):
 
 class TelegramScreen(BaseModel):
     html: str
+    # Bot API 10.1+ rich message body (Markdown). When set, prefer sendRichMessage.
+    rich_markdown: Optional[str] = None
     inline_keyboard: List[List[dict]] = Field(default_factory=list)
     page_index: int = 0
     page_count: int = 1

@@ -14,7 +14,7 @@ from config import config
 from db.store import db
 from handlers.menu import main_menu
 from handlers.session_helpers import put_session
-from handlers.telegram_ui import send_screen
+from handlers.telegram_ui import new_draft_id, send_screen, stream_draft
 from intent_engine.engine import IntentEngine
 from interfaces import ContentSession, IntentType
 from presentation_engine.component_policy import ComponentPolicy
@@ -99,8 +99,21 @@ class MessageHandler:
             str(self.bot_cfg.get("disclaimer") or ""),
         )
         book_line = book_label_for_user(user_id)
+        chat_id = message.chat.id
+        is_private = getattr(message.chat, "type", "") == "private"
+        draft_id = new_draft_id(user_id) if is_private else 0
 
         try:
+            # Live draft bubble (private only) — final answer still sent via send_screen
+            if draft_id:
+                await stream_draft(bot, chat_id, draft_id, text="")
+                await stream_draft(
+                    bot,
+                    chat_id,
+                    draft_id,
+                    markdown="# Working…\n\nReading your question and picking a study path.",
+                )
+
             intent = await self.intent_engine.classify(query)
             logger.info(
                 "user=%s intent=%s mode=%s book=%s q=%r",
@@ -110,6 +123,20 @@ class MessageHandler:
                 preferred_ns or "*",
                 query[:80],
             )
+            if draft_id:
+                scope = book_line or "all indexed books"
+                await stream_draft(
+                    bot,
+                    chat_id,
+                    draft_id,
+                    markdown=(
+                        f"# Working…\n\n"
+                        f"**Intent:** `{intent.value}`  \n"
+                        f"**Mode:** {study_mode}  \n"
+                        f"**Library:** {scope}\n\n"
+                        f"Searching textbook chunks…"
+                    ),
+                )
 
             ws_kwargs = {"study_mode": study_mode, "namespaces": namespaces}
             if intent == IntentType.DISEASE:
@@ -122,6 +149,19 @@ class MessageHandler:
                 ndm = await self.study_ws.process(query, **ws_kwargs)
             else:
                 ndm = await self.fallback_ws.process(query, **ws_kwargs)
+
+            if draft_id and "error" not in ndm:
+                title_preview = str(ndm.get("title") or "topic")[:80]
+                await stream_draft(
+                    bot,
+                    chat_id,
+                    draft_id,
+                    markdown=(
+                        f"# Almost ready\n\n"
+                        f"Grounding answer for **{title_preview}**…\n\n"
+                        f"Formatting rich study card."
+                    ),
+                )
 
             if "error" in ndm:
                 err = ndm["error"]
@@ -190,6 +230,7 @@ class MessageHandler:
                 has_details=has_details,
                 bookmarked=False,
             )
+            # Final persist — draft is ephemeral until this lands
             await send_screen(message, first)
 
         except Exception:

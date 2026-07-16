@@ -406,9 +406,11 @@
     <h2 id="how">12. How the bot answers (super short)</h2>
     <ol>
       <li>Student asks a question in Telegram (optionally after picking a book).</li>
+      <li>In a private chat you may see a live “Working…” draft bubble while it searches.</li>
       <li>The bot searches matching chunks in Pinecone (vector + keywords).</li>
       <li>Gemini writes a short, structured answer from those chunks.</li>
       <li>Faithfulness checks try to keep claims tied to the book text.</li>
+      <li>The final card is a <b>rich Telegram message</b> (headings, lists, tables, expandable source notes) when your app supports Bot API 10.1+, with plain HTML as fallback.</li>
       <li>Student can page details, quiz, bookmark, make flashcards — study tools, not a doctor.</li>
     </ol>
 

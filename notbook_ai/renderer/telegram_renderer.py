@@ -1,4 +1,4 @@
-"""ADHD-first Telegram HTML renderer with pagination + library actions."""
+"""ADHD-first Telegram renderer: classic HTML + Bot API 10.x rich Markdown."""
 
 from __future__ import annotations
 
@@ -10,6 +10,11 @@ from interfaces import TelegramScreen
 
 def _esc(text: str) -> str:
     return html.escape(str(text or ""), quote=False)
+
+
+def _md_escape_cell(text: str) -> str:
+    """Escape pipe chars so markdown tables don't break."""
+    return str(text or "").replace("|", "\\|").replace("\n", " ").strip()
 
 
 def _body_lines(text: str) -> str:
@@ -29,6 +34,31 @@ def _body_lines(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
+def _body_lines_md(text: str) -> str:
+    """Plain body → markdown paragraphs / bullets."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    out: list[str] = []
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            out.append("")
+            continue
+        if line.startswith("- "):
+            out.append(f"- {line[2:].strip()}")
+        else:
+            out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def _blockquote_md(text: str) -> str:
+    lines = [ln.strip() for ln in str(text or "").split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    return "\n".join(f"> {ln}" for ln in lines)
+
+
 class TelegramRenderer:
     @staticmethod
     def render_page(
@@ -43,10 +73,19 @@ class TelegramRenderer:
         kind = page.get("kind", "overview")
 
         if kind == "error":
-            body = f"<b>Couldn’t answer</b>\n\n{_esc(page.get('data') or 'Unknown error')}"
-            return TelegramScreen(html=body, inline_keyboard=[], page_index=0, page_count=1)
+            err = page.get("data") or "Unknown error"
+            body = f"<b>Couldn’t answer</b>\n\n{_esc(err)}"
+            md = f"# Couldn't answer\n\n{err}"
+            return TelegramScreen(
+                html=body,
+                rich_markdown=md,
+                inline_keyboard=[],
+                page_index=0,
+                page_count=1,
+            )
 
         parts: list[str] = []
+        md_parts: list[str] = []
 
         if kind == "overview":
             title = page.get("title") or "Topic"
@@ -55,32 +94,52 @@ class TelegramRenderer:
             if mode:
                 head += f"\n{_esc(mode)}"
             parts.append(head)
+            md_parts.append(f"# {_md_escape_cell(title)}")
+            if mode:
+                md_parts.append(f"*{mode}*")
+
             banner = (page.get("emergency_banner") or "").strip()
             if banner:
                 parts.append("")
                 parts.append(f"<blockquote>{_esc(banner)}</blockquote>")
+                md_parts.append(_blockquote_md(f"**Alert** — {banner}"))
+
             summary = (page.get("summary") or "").strip()
             if summary:
                 parts.append("")
                 parts.append(_esc(summary))
+                md_parts.append(summary)
+
             facts = page.get("facts") or []
             if facts:
                 parts.append("")
+                md_parts.append("## Key facts")
                 for fact in facts[:3]:
                     parts.append(f"• {_esc(fact)}")
+                    md_parts.append(f"- {fact}")
+
             disc = (page.get("disclaimer") or "").strip()
             if disc:
                 parts.append("")
                 parts.append(f"<blockquote>{_esc(disc)}</blockquote>")
+                md_parts.append(_blockquote_md(disc))
 
         elif kind == "section":
-            parts.append(f"<b>{_esc(page.get('heading') or 'Details')}</b>")
+            heading = page.get("heading") or "Details"
+            parts.append(f"<b>{_esc(heading)}</b>")
             parts.append("")
             parts.append(_body_lines(page.get("body") or ""))
+            md_parts.append(f"## {_md_escape_cell(heading)}")
+            md_parts.append(_body_lines_md(page.get("body") or ""))
 
         elif kind == "citations":
             parts.append("<b>Sources in this library</b>")
             parts.append("")
+            md_parts.append("# Sources in this library")
+            rows_md = [
+                "| Ref | Book | Page | Score |",
+                "| --- | --- | --- | --- |",
+            ]
             for c in (page.get("citations") or [])[:6]:
                 ref = c.get("ref") or "?"
                 book = c.get("book") or "Textbook"
@@ -92,23 +151,40 @@ class TelegramRenderer:
                     f" · id {_esc(str(chunk)[:40])}"
                     f" · score {_esc(f'{float(score):.3f}')}"
                 )
+                rows_md.append(
+                    f"| [{_md_escape_cell(ref)}] "
+                    f"| {_md_escape_cell(book)} "
+                    f"| {_md_escape_cell(page_n)} "
+                    f"| {_md_escape_cell(f'{float(score):.3f}')} |"
+                )
                 excerpt = (c.get("excerpt") or "").strip()
                 if excerpt:
                     parts.append(f"<blockquote>{_esc(excerpt[:220])}</blockquote>")
+                    md_parts.append(
+                        f"<details>\n<summary>[{ref}] excerpt</summary>\n\n"
+                        f"{excerpt[:400]}\n\n</details>"
+                    )
                 parts.append("")
+            md_parts.append("\n".join(rows_md))
 
         elif kind == "source":
             parts.append("<b>Primary citation</b>")
             parts.append("")
-            parts.append(f"<blockquote>{_esc(page.get('source') or 'Textbook')}</blockquote>")
+            src = page.get("source") or "Textbook"
+            parts.append(f"<blockquote>{_esc(src)}</blockquote>")
+            md_parts.append("# Primary citation")
+            md_parts.append(_blockquote_md(src))
             disc = (page.get("disclaimer") or "").strip()
             if disc:
                 parts.append("")
                 parts.append(_esc(disc))
+                md_parts.append(disc)
         else:
             parts.append(_esc(str(page)))
+            md_parts.append(str(page))
 
         html_msg = "\n".join(parts).strip()
+        rich_md = "\n\n".join(p for p in md_parts if p is not None and str(p).strip()).strip()
         keyboard = TelegramRenderer._keyboard(
             concept_id=concept_id,
             page_index=page_index,
@@ -119,6 +195,7 @@ class TelegramRenderer:
         )
         return TelegramScreen(
             html=html_msg,
+            rich_markdown=rich_md or None,
             inline_keyboard=keyboard,
             page_index=page_index,
             page_count=page_count,
@@ -152,7 +229,6 @@ class TelegramRenderer:
                 actions.append({"text": "Deep dive", "callback_data": f"deep:{cid}"})
             actions.append({"text": "Quiz me", "callback_data": f"quiz:{cid}"})
             rows.append(actions)
-            # Second row: library actions (max 3)
             save_label = "Saved" if bookmarked else "Save"
             rows.append(
                 [
@@ -174,16 +250,22 @@ class TelegramRenderer:
         quiz_token: str,
     ) -> TelegramScreen:
         parts = ["<b>Quick quiz</b>", "", _esc(question), ""]
+        md_parts = ["# Quick quiz", question, ""]
         labels = "ABCD"
         keyboard: list[list[dict]] = []
         for i, opt in enumerate(options[:4]):
             letter = labels[i] if i < len(labels) else str(i + 1)
             parts.append(f"{letter}. {_esc(opt)}")
+            md_parts.append(f"{i + 1}. **{letter}.** {opt}")
             keyboard.append(
                 [{"text": letter, "callback_data": f"qa:{concept_id[:20]}:{quiz_token}:{i}"}]
             )
         keyboard.append([{"text": "Back to topic", "callback_data": f"pg:{concept_id[:40]}:0"}])
-        return TelegramScreen(html="\n".join(parts), inline_keyboard=keyboard)
+        return TelegramScreen(
+            html="\n".join(parts),
+            rich_markdown="\n\n".join(md_parts),
+            inline_keyboard=keyboard,
+        )
 
     @staticmethod
     def render_quiz_result(
@@ -194,10 +276,12 @@ class TelegramRenderer:
     ) -> TelegramScreen:
         title = "Correct" if correct else "Not quite"
         body = f"<b>{title}</b>"
+        md = f"# {title}"
         if explanation:
             body += f"\n\n{_esc(explanation)}"
+            md += f"\n\n{explanation}"
         keyboard = [[{"text": "Back to topic", "callback_data": f"pg:{concept_id[:40]}:0"}]]
-        return TelegramScreen(html=body, inline_keyboard=keyboard)
+        return TelegramScreen(html=body, rich_markdown=md, inline_keyboard=keyboard)
 
     @staticmethod
     def render_flashcard(
@@ -210,6 +294,7 @@ class TelegramRenderer:
     ) -> TelegramScreen:
         if not revealed:
             html_msg = f"<b>Flashcard</b> · {remaining} due\n\n{_esc(front)}"
+            md = f"# Flashcard · {remaining} due\n\n{front}"
             keyboard = [
                 [{"text": "Show answer", "callback_data": f"fcshow:{card_id}"}],
             ]
@@ -218,6 +303,7 @@ class TelegramRenderer:
                 f"<b>Flashcard</b>\n\n{_esc(front)}\n\n"
                 f"<blockquote>{_esc(back)}</blockquote>"
             )
+            md = f"# Flashcard\n\n{front}\n\n{_blockquote_md(back)}"
             keyboard = [
                 [
                     {"text": "Again", "callback_data": f"fcr:{card_id}:0"},
@@ -226,7 +312,7 @@ class TelegramRenderer:
                     {"text": "Easy", "callback_data": f"fcr:{card_id}:3"},
                 ]
             ]
-        return TelegramScreen(html=html_msg, inline_keyboard=keyboard)
+        return TelegramScreen(html=html_msg, rich_markdown=md, inline_keyboard=keyboard)
 
     @staticmethod
     def chunk_html(html_text: str, max_chars: int) -> list[str]:
