@@ -20,6 +20,7 @@
       <button data-tab="secrets">SECRETS</button>
       <button data-tab="config">CONFIG</button>
       <button data-tab="library">LIBRARY</button>
+      <button data-tab="link">LINK</button>
       <button data-tab="render">RENDER</button>
       <button data-tab="local">LOCAL</button>
       <button data-tab="deploy">DEPLOY</button>
@@ -235,6 +236,46 @@
 
         <h2>// INDEXED BOOKS</h2>
         <pre id="lib-books" class="term-block">// click REFRESH BOOKS</pre>
+      </section>
+
+      <!-- LINK bot ↔ console -->
+      <section id="tab-link" class="panel">
+        <h2>// BOT ↔ CONSOLE LINK</h2>
+        <p class="hint">
+          Shared token + public Render URLs. Console can pull bot status/books and push
+          cache refresh; bot can POST webhooks back after start/upload.
+        </p>
+        <form id="form-link" class="form-grid">
+          <label>BOT_BASE_URL <span class="dim">(https://your-bot.onrender.com — no trailing slash)</span>
+            <input name="BOT_BASE_URL" id="link-bot-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://notbook.onrender.com" />
+          </label>
+          <label>CONSOLE_BASE_URL <span class="dim">(this console public URL)</span>
+            <input name="CONSOLE_BASE_URL" id="link-console-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://notbook-console.onrender.com" />
+          </label>
+          <label>INTERNAL_SERVICE_TOKEN <span class="dim">(same secret on bot + console)</span>
+            <input name="INTERNAL_SERVICE_TOKEN" id="link-token" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+        </form>
+        <div class="row">
+          <button class="btn" id="btn-link-save">SAVE LINK</button>
+          <button class="btn ghost" id="btn-link-status">LINK STATUS</button>
+          <button class="btn" id="btn-link-ping">PING BOT</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost" id="btn-link-pull-status">PULL BOT STATUS</button>
+          <button class="btn ghost" id="btn-link-pull-books">PULL BOT BOOKS</button>
+          <button class="btn ghost" id="btn-link-pull-config">PULL BOT CONFIG</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="btn-link-cache">PUSH: CLEAR BOT CACHE</button>
+          <button class="btn" id="btn-link-refresh">PUSH: REFRESH LIBRARY</button>
+          <button class="btn ghost" id="btn-link-sync-render">SYNC SECRETS VIA RENDER API</button>
+        </div>
+        <pre id="link-msg" class="msg"></pre>
+        <h2>// LINK / BOT RESPONSE</h2>
+        <pre id="link-out" class="term-block log">// save URLs + token, then ping</pre>
+        <h2>// EVENTS FROM BOT</h2>
+        <pre id="link-events" class="term-block log">// bot → console webhooks</pre>
       </section>
 
       <!-- RENDER -->

@@ -58,6 +58,8 @@ async function refreshStatus() {
     `  ADMIN_IDS  ${s.secrets.ADMIN_USER_IDS ? "[OK]" : "[—]"}`,
     `  RENDER     ${s.secrets.RENDER_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  RENDER_SID ${s.render_service_id || "—"}`,
+    `  LINK TOK   ${s.link && s.link.token_set ? "[OK]" : "[—]"}`,
+    `  BOT URL    ${(s.link && s.link.bot_base_url) || "—"}`,
     ``,
     `STACK`,
     `  LLM        ${s.llm_model || "—"}`,
@@ -325,6 +327,145 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
     stopLibPoll();
     if (btn) btn.disabled = false;
     setMsg("#lib-msg", String(e), false);
+  }
+});
+
+/* Bot ↔ Console link */
+async function loadLinkForm() {
+  try {
+    const env = await api("/api/env?masked=0");
+    const e = env.env || {};
+    if ($("#link-bot-url") && e.BOT_BASE_URL) $("#link-bot-url").value = e.BOT_BASE_URL;
+    if ($("#link-console-url") && e.CONSOLE_BASE_URL)
+      $("#link-console-url").value = e.CONSOLE_BASE_URL;
+    if ($("#link-token") && e.INTERNAL_SERVICE_TOKEN)
+      $("#link-token").value = e.INTERNAL_SERVICE_TOKEN;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const st = await api("/api/link/status");
+    if ($("#link-console-url") && !($("#link-console-url").value || "").trim() && st.console_base_url) {
+      $("#link-console-url").value = st.console_base_url;
+    }
+    renderLinkEvents(st.recent_bot_events || []);
+  } catch (_) {}
+}
+
+function renderLinkEvents(events) {
+  const el = $("#link-events");
+  if (!el) return;
+  if (!events.length) {
+    el.textContent = "(no events yet)";
+    return;
+  }
+  el.textContent = events
+    .map((ev) => {
+      const t = ev.ts ? new Date(ev.ts * 1000).toISOString() : "";
+      return `[${t}] ${ev.event}  ${JSON.stringify(ev.payload || {})}`;
+    })
+    .join("\n");
+}
+
+function showLinkOut(obj) {
+  const el = $("#link-out");
+  if (!el) return;
+  el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+}
+
+$("#btn-link-save")?.addEventListener("click", async () => {
+  try {
+    const body = {
+      BOT_BASE_URL: ($("#link-bot-url")?.value || "").trim(),
+      CONSOLE_BASE_URL: ($("#link-console-url")?.value || "").trim(),
+      INTERNAL_SERVICE_TOKEN: ($("#link-token")?.value || "").trim(),
+    };
+    const r = await api("/api/link/save", { method: "POST", body: JSON.stringify(body) });
+    setMsg("#link-msg", r.message || "saved");
+    // also mirror into main secrets form if present
+    await refreshStatus();
+  } catch (e) {
+    setMsg("#link-msg", String(e), false);
+  }
+});
+
+$("#btn-link-status")?.addEventListener("click", async () => {
+  try {
+    const st = await api("/api/link/status");
+    showLinkOut(st);
+    renderLinkEvents(st.recent_bot_events || []);
+    setMsg(
+      "#link-msg",
+      st.configured ? "link configured" : "not configured — set URL + token"
+    );
+  } catch (e) {
+    setMsg("#link-msg", String(e), false);
+  }
+});
+
+async function linkPull(what) {
+  setMsg("#link-msg", `pull ${what}…`);
+  try {
+    const r = await api("/api/link/pull/bot", {
+      method: "POST",
+      body: JSON.stringify({ what }),
+    });
+    showLinkOut(r.data || r);
+    setMsg("#link-msg", `pulled ${what}`);
+  } catch (e) {
+    setMsg("#link-msg", String(e), false);
+  }
+}
+$("#btn-link-ping")?.addEventListener("click", () => linkPull("ping"));
+$("#btn-link-pull-status")?.addEventListener("click", () => linkPull("status"));
+$("#btn-link-pull-books")?.addEventListener("click", () => linkPull("books"));
+$("#btn-link-pull-config")?.addEventListener("click", () => linkPull("config"));
+
+async function linkPush(action) {
+  setMsg("#link-msg", `push ${action}…`);
+  try {
+    const r = await api("/api/link/push/bot", {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+    showLinkOut(r.data || r);
+    setMsg("#link-msg", `pushed ${action}`);
+  } catch (e) {
+    setMsg("#link-msg", String(e), false);
+  }
+}
+$("#btn-link-cache")?.addEventListener("click", () => linkPush("cache_clear"));
+$("#btn-link-refresh")?.addEventListener("click", () => linkPush("library_refresh"));
+
+$("#btn-link-sync-render")?.addEventListener("click", async () => {
+  // reuse render sync if service selected
+  const sid = selectedRenderServiceId();
+  if (!sid) {
+    setMsg("#link-msg", "select a service on RENDER tab first (or set preferred)", false);
+    return;
+  }
+  try {
+    const r = await api("/api/render/env/sync", {
+      method: "POST",
+      body: JSON.stringify({
+        service_id: sid,
+        deploy: true,
+        keys: [
+          "TELEGRAM_BOT_TOKEN",
+          "GEMINI_API_KEY",
+          "GEMINI_API_KEYS",
+          "PINECONE_API_KEY",
+          "ADMIN_USER_IDS",
+          "INTERNAL_SERVICE_TOKEN",
+          "CONSOLE_BASE_URL",
+          "BOT_BASE_URL",
+        ],
+      }),
+    });
+    showLinkOut(r);
+    setMsg("#link-msg", "synced secrets (+ link vars) to Render + deploy");
+  } catch (e) {
+    setMsg("#link-msg", String(e), false);
   }
 });
 
@@ -645,6 +786,16 @@ $("#btn-render-resume")?.addEventListener("click", async () => {
 /* local */
 $("#btn-start")?.addEventListener("click", async () => {
   try {
+    // On Render, local bot start is disabled noise — use the linked bot service
+    const st = await api("/api/status");
+    if (st.link && st.link.on_render) {
+      setMsg(
+        "#local-msg",
+        "On Render: use the bot Web Service + LINK tab (not local start).",
+        false
+      );
+      return;
+    }
     const r = await api("/api/local/start", { method: "POST", body: "{}" });
     setMsg("#local-msg", `STARTED pid=${r.pid}\nlog=${r.log}`);
     await refreshStatus();
@@ -744,3 +895,4 @@ loadConfig().catch(() => {});
 listArtifacts().catch(() => {});
 refreshBooks().catch(() => {});
 loadRenderServices().catch(() => {});
+loadLinkForm().catch(() => {});

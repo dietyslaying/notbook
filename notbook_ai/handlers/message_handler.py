@@ -243,6 +243,19 @@ class MessageHandler:
                 )
             )
             gemini_service._ns_cache = None
+            try:
+                from handlers.internal_api import notify_console
+
+                await notify_console(
+                    "library_upload",
+                    {
+                        "book": result.get("book"),
+                        "namespace": result.get("namespace"),
+                        "chunks": result.get("chunks"),
+                    },
+                )
+            except Exception:
+                pass
             await message.answer(
                 f"Done.\n"
                 f"Display name: <b>{_esc(result['book'])}</b>\n"

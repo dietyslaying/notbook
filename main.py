@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("notbook")
 
-# Health app first — so Render sees an open port even if handlers are slow to import.
+# Health + internal API first — so Render sees an open port even if handlers are slow.
 app = web.Application()
 
 
@@ -38,6 +38,11 @@ async def handle_health(_request: web.Request) -> web.Response:
 
 app.router.add_get("/", handle_health)
 app.router.add_get("/health", handle_health)
+
+# Console ↔ bot authenticated routes (/internal/*)
+from handlers.internal_api import register_internal_routes  # noqa: E402
+
+register_internal_routes(app)
 
 bot = Bot(token=config.telegram_token)
 dp = Dispatcher()
@@ -114,11 +119,31 @@ async def main() -> None:
             "RAG answers fail until index exists + books are ingested"
         )
 
+    # Notify console that bot is up (best-effort)
+    try:
+        from handlers.internal_api import notify_console
+
+        await notify_console(
+            "bot_started",
+            {
+                "port": port,
+                "external_url": os.getenv("RENDER_EXTERNAL_URL") or "",
+            },
+        )
+    except Exception:
+        pass
+
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Starting Notbook AI polling")
     try:
         await dp.start_polling(bot)
     finally:
+        try:
+            from handlers.internal_api import notify_console
+
+            await notify_console("bot_stopping", {})
+        except Exception:
+            pass
         await runner.cleanup()
         await bot.session.close()
 
