@@ -45,34 +45,47 @@ $$("#tabs button").forEach((btn) => {
 /* status */
 async function refreshStatus() {
   const s = await api("/api/status");
+  const bs = s.bot_secrets || null;
   const lines = [
     `PROJECT   ${s.project_root}`,
     `PYTHON    ${s.python}  (${s.platform})`,
-    `BOT       ${s.bot_running ? "RUNNING  pid=" + s.bot_pid : "STOPPED"}`,
-    `READY     ${s.ready ? "YES" : "NO — fill secrets"}`,
+    `LOCAL BOT ${s.bot_running ? "RUNNING  pid=" + s.bot_pid : "STOPPED (normal on Render)"}`,
+    `CONSOLE READY  ${s.ready ? "YES" : "NO — add secrets to THIS console service"}`,
     ``,
-    `SECRETS`,
+    `NOTE  ${s.secrets_note || "Secrets below = console service only"}`,
+    ``,
+    `SECRETS ON CONSOLE SERVICE (this app)`,
     `  TELEGRAM   ${s.secrets.TELEGRAM_BOT_TOKEN ? "[OK]" : "[MISSING]"}`,
     `  GEMINI     ${s.secrets.GEMINI_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  PINECONE   ${s.secrets.PINECONE_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  ADMIN_IDS  ${s.secrets.ADMIN_USER_IDS ? "[OK]" : "[—]"}`,
-    `  RENDER     ${s.secrets.RENDER_API_KEY ? "[OK]" : "[MISSING]"}`,
+    `  RENDER API ${s.secrets.RENDER_API_KEY ? "[OK]" : "[—]"}`,
     `  RENDER_SID ${s.render_service_id || "—"}`,
     `  LINK TOK   ${s.link && s.link.token_set ? "[OK]" : "[—]"}`,
     `  BOT URL    ${(s.link && s.link.bot_base_url) || "—"}`,
     ``,
-    `STACK`,
+    `SECRETS ON BOT SERVICE (via link pull)`,
+    bs
+      ? [
+          `  TELEGRAM   ${bs.telegram ? "[OK]" : "[MISSING]"}`,
+          `  GEMINI     ${bs.gemini ? "[OK]" : "[MISSING]"}`,
+          `  PINECONE   ${bs.pinecone ? "[OK]" : "[MISSING]"}`,
+          `  LINK TOK   ${bs.internal_token ? "[OK]" : "[MISSING]"}`,
+        ].join("\n")
+      : s.bot_pull_error
+        ? `  (could not reach bot: ${s.bot_pull_error})`
+        : `  (set BOT_BASE_URL + INTERNAL_SERVICE_TOKEN to pull)`,
+    ``,
+    `STACK (config.yaml)`,
     `  LLM        ${s.llm_model || "—"}`,
     `  EMBED      ${(s.embed && s.embed.provider) || "—"} / ${(s.embed && s.embed.model) || "—"} d=${(s.embed && s.embed.dimension) || "—"}`,
     `  INDEX      ${s.index || "—"}`,
     `  RERANKER   ${s.reranker || "—"}`,
   ];
   $("#status-pre").textContent = lines.join("\n");
-  $("#meta-line").textContent = s.bot_running
-    ? `BOT ONLINE · PID ${s.bot_pid}`
-    : s.ready
-      ? "READY · BOT OFFLINE"
-      : "AWAITING SECRETS";
+  $("#meta-line").textContent = s.ready
+    ? "CONSOLE READY"
+    : "CONSOLE NEEDS SECRETS (bot env ≠ console env)";
   return s;
 }
 

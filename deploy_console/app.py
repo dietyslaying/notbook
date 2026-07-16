@@ -514,17 +514,82 @@ def _render_client():
 
 @app.get("/api/status")
 def api_status():
+    # Merge process env (Render dashboard) + optional .env file (local only)
     env = _read_env()
+    for k in (
+        "TELEGRAM_BOT_TOKEN",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEYS",
+        "PINECONE_API_KEY",
+        "ADMIN_USER_IDS",
+        "RENDER_API_KEY",
+        "RENDER_SERVICE_ID",
+        "INTERNAL_SERVICE_TOKEN",
+        "BOT_BASE_URL",
+        "CONSOLE_BASE_URL",
+        "CONSOLE_PASSWORD",
+    ):
+        if os.getenv(k) and not env.get(k):
+            env[k] = os.getenv(k) or ""
+
+    def _has(*keys: str) -> bool:
+        for k in keys:
+            v = (env.get(k) or os.getenv(k) or "").strip()
+            if v:
+                return True
+        return False
+
     cfg = _load_yaml()
     pid = _bot_pid()
+    # Secrets available to THIS process (console service), NOT the bot service
     secrets = {
-        "TELEGRAM_BOT_TOKEN": bool(env.get("TELEGRAM_BOT_TOKEN")),
-        "GEMINI_API_KEY": bool(env.get("GEMINI_API_KEY") or env.get("GEMINI_API_KEYS")),
-        "PINECONE_API_KEY": bool(env.get("PINECONE_API_KEY")),
-        "ADMIN_USER_IDS": bool(env.get("ADMIN_USER_IDS")),
-        "RENDER_API_KEY": bool(env.get("RENDER_API_KEY")),
-        "RENDER_SERVICE_ID": bool(env.get("RENDER_SERVICE_ID")),
+        "TELEGRAM_BOT_TOKEN": _has("TELEGRAM_BOT_TOKEN"),
+        "GEMINI_API_KEY": _has("GEMINI_API_KEY", "GEMINI_API_KEYS"),
+        "PINECONE_API_KEY": _has("PINECONE_API_KEY"),
+        "ADMIN_USER_IDS": _has("ADMIN_USER_IDS", "ADMIN_USER_ID"),
+        "RENDER_API_KEY": _has("RENDER_API_KEY"),
+        "RENDER_SERVICE_ID": _has("RENDER_SERVICE_ID"),
+        "INTERNAL_SERVICE_TOKEN": _has("INTERNAL_SERVICE_TOKEN"),
     }
+    ready = all(
+        [
+            secrets["TELEGRAM_BOT_TOKEN"],
+            secrets["GEMINI_API_KEY"],
+            secrets["PINECONE_API_KEY"],
+        ]
+    )
+    link = {
+        "bot_base_url": (
+            env.get("BOT_BASE_URL") or os.getenv("BOT_BASE_URL") or ""
+        ).rstrip("/"),
+        "console_base_url": (
+            env.get("CONSOLE_BASE_URL")
+            or os.getenv("CONSOLE_BASE_URL")
+            or os.getenv("RENDER_EXTERNAL_URL")
+            or ""
+        ).rstrip("/"),
+        "token_set": secrets["INTERNAL_SERVICE_TOKEN"],
+        "on_render": bool(os.getenv("RENDER")),
+    }
+
+    # Optional: pull bot-side secret presence via internal API
+    bot_secrets = None
+    bot_pull_error = None
+    if link["bot_base_url"] and link["token_set"]:
+        try:
+            from link_client import bot_request
+
+            # Ensure token in process env for link_client
+            tok = env.get("INTERNAL_SERVICE_TOKEN") or os.getenv("INTERNAL_SERVICE_TOKEN")
+            if tok:
+                os.environ["INTERNAL_SERVICE_TOKEN"] = tok
+            if link["bot_base_url"]:
+                os.environ["BOT_BASE_URL"] = link["bot_base_url"]
+            data = bot_request("GET", "/internal/status", timeout=20)
+            bot_secrets = (data or {}).get("secrets")
+        except Exception as e:
+            bot_pull_error = str(e)[:200]
+
     return jsonify(
         {
             "ok": True,
@@ -532,13 +597,15 @@ def api_status():
             "bot_running": pid is not None,
             "bot_pid": pid,
             "secrets": secrets,
-            "ready": all(
-                [
-                    secrets["TELEGRAM_BOT_TOKEN"],
-                    secrets["GEMINI_API_KEY"],
-                    secrets["PINECONE_API_KEY"],
-                ]
+            "secrets_scope": "console_service",
+            "secrets_note": (
+                "These flags are for THIS console process only. "
+                "The bot Web Service has its own Environment tab — "
+                "vars do not auto-copy between services."
             ),
+            "bot_secrets": bot_secrets,
+            "bot_pull_error": bot_pull_error,
+            "ready": ready,
             "llm_model": (cfg.get("llm") or {}).get("model_name"),
             "embed": cfg.get("embeddings") or {},
             "index": (cfg.get("pinecone") or {}).get("index_name"),
@@ -546,19 +613,10 @@ def api_status():
             "platform": sys.platform,
             "python": sys.version.split()[0],
             "render_configured": secrets["RENDER_API_KEY"],
-            "render_service_id": env.get("RENDER_SERVICE_ID") or "",
-            "link": {
-                "bot_base_url": (env.get("BOT_BASE_URL") or "").rstrip("/"),
-                "console_base_url": (
-                    env.get("CONSOLE_BASE_URL")
-                    or os.getenv("RENDER_EXTERNAL_URL")
-                    or ""
-                ).rstrip("/"),
-                "token_set": bool(
-                    (env.get("INTERNAL_SERVICE_TOKEN") or "").strip()
-                ),
-                "on_render": bool(os.getenv("RENDER")),
-            },
+            "render_service_id": env.get("RENDER_SERVICE_ID")
+            or os.getenv("RENDER_SERVICE_ID")
+            or "",
+            "link": link,
         }
     )
 
