@@ -3,225 +3,54 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NOTBOOK // DEPLOY CONSOLE</title>
+  <title>NOTBOOK // CONSOLE</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <div class="crt">
     <header class="top">
       <div class="brand">
-        <span class="blink">█</span> NOTBOOK DEPLOY CONSOLE
+        <span class="blink">█</span> NOTBOOK CONSOLE
       </div>
       <div class="meta" id="meta-line">BOOTING…</div>
     </header>
 
     <nav class="tabs" id="tabs">
       <button data-tab="status" class="active">STATUS</button>
-      <button data-tab="secrets">SECRETS</button>
-      <button data-tab="config">CONFIG</button>
       <button data-tab="library">LIBRARY</button>
-      <button data-tab="link">LINK</button>
-      <button data-tab="render">RENDER</button>
-      <button data-tab="local">LOCAL</button>
-      <button data-tab="deploy">DEPLOY</button>
-      <button data-tab="artifacts">ARTIFACTS</button>
-      <a class="tab-link" href="/docs" title="Plain English guide">DOCS</a>
+      <button data-tab="deploy">DEPLOY BOT</button>
+      <button data-tab="logs">LOGS</button>
+      <a class="tab-link" href="/docs" title="Simple guide">DOCS</a>
     </nav>
 
     <main>
       <!-- STATUS -->
       <section id="tab-status" class="panel active">
-        <h2>// SYSTEM STATUS</h2>
+        <h2>// STATUS</h2>
         <pre id="status-pre" class="term-block">loading…</pre>
         <div class="row">
           <button class="btn" id="btn-refresh-status">REFRESH</button>
-          <button class="btn" id="btn-gen-artifacts">GENERATE ARTIFACTS</button>
         </div>
         <p class="hint">
-          BOT ONLINE = live check of BOT_BASE_URL/health (or local process).
-          CONSOLE READY = Telegram + Gemini + Pinecone keys on <b>this</b> service.
-          Open <a href="/docs">DOCS</a> for a plain-English tour of every button.
+          BOT ONLINE = live check of the bot URL.
+          CONSOLE READY = this console has Gemini + Pinecone keys (needed for book upload).
+          Keys are set in the <b>Render dashboard Environment</b>, not in this UI.
         </p>
       </section>
 
-      <!-- SECRETS -->
-      <section id="tab-secrets" class="panel">
-        <h2>// SECRETS</h2>
-        <p class="hint">
-          <b>On your PC:</b> SAVE writes project <code>.env</code>.
-          <b>On Render:</b> the disk is wiped every deploy — keys must live in
-          <b>Dashboard → this service → Environment</b> (or SAVE will push there if
-          <code>RENDER_API_KEY</code> is already set on the service).
-          Never commit real keys to git.
-        </p>
-        <form id="form-secrets" class="form-grid">
-          <label>TELEGRAM_BOT_TOKEN
-            <input name="TELEGRAM_BOT_TOKEN" type="password" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>GEMINI_API_KEY
-            <input name="GEMINI_API_KEY" type="password" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>GEMINI_API_KEYS <span class="dim">(optional, comma-separated)</span>
-            <input name="GEMINI_API_KEYS" type="text" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>PINECONE_API_KEY
-            <input name="PINECONE_API_KEY" type="password" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>ADMIN_USER_IDS <span class="dim">(Telegram numeric ids)</span>
-            <input name="ADMIN_USER_IDS" type="text" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>PORT
-            <input name="PORT" type="text" value="8080" autocomplete="off" />
-          </label>
-          <label>RENDER_API_KEY <span class="dim">(dashboard → Account → API Keys)</span>
-            <input name="RENDER_API_KEY" type="password" autocomplete="off" spellcheck="false" />
-          </label>
-          <label>RENDER_SERVICE_ID <span class="dim">(preferred service — set from RENDER tab)</span>
-            <input name="RENDER_SERVICE_ID" type="text" autocomplete="off" spellcheck="false" />
-          </label>
-        </form>
-        <div class="row">
-          <button class="btn" id="btn-save-secrets">SAVE .ENV</button>
-          <button class="btn ghost" id="btn-reveal-secrets">REVEAL / RELOAD</button>
-        </div>
-        <pre id="secrets-msg" class="msg"></pre>
-      </section>
-
-      <!-- CONFIG -->
-      <section id="tab-config" class="panel">
-        <h2>// CONFIG  (config.yaml)</h2>
-        <form id="form-config" class="form-grid two">
-          <fieldset>
-            <legend>LLM</legend>
-            <label>model_name
-              <input name="llm.model_name" data-path="llm.model_name" />
-            </label>
-            <label>temperature
-              <input name="llm.temperature" data-path="llm.temperature" />
-            </label>
-            <label>max_output_tokens
-              <input name="llm.max_output_tokens" data-path="llm.max_output_tokens" />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>EMBEDDINGS</legend>
-            <label>provider
-              <select data-path="embeddings.provider">
-                <option value="gemini">gemini</option>
-                <option value="pinecone">pinecone</option>
-              </select>
-            </label>
-            <label>model
-              <input data-path="embeddings.model" />
-            </label>
-            <label>dimension
-              <input data-path="embeddings.dimension" />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>RERANKER</legend>
-            <label>enabled
-              <select data-path="reranker.enabled">
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </label>
-            <label>backend
-              <select data-path="reranker.backend">
-                <option value="auto">auto</option>
-                <option value="gemini">gemini</option>
-                <option value="cross_encoder">cross_encoder</option>
-                <option value="none">none</option>
-              </select>
-            </label>
-            <label>candidate_k
-              <input data-path="reranker.candidate_k" />
-            </label>
-            <label>top_k
-              <input data-path="reranker.top_k" />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>PINECONE / RAG</legend>
-            <label>index_name
-              <input data-path="pinecone.index_name" />
-            </label>
-            <label>dimension
-              <input data-path="pinecone.dimension" />
-            </label>
-            <label>top_k_dense
-              <input data-path="pinecone.top_k_dense" />
-            </label>
-            <label>hybrid_alpha
-              <input data-path="pinecone.hybrid_alpha" />
-            </label>
-            <label>router.max_namespaces
-              <input data-path="pinecone.router.max_namespaces" />
-            </label>
-            <label>router.use_probe
-              <select data-path="pinecone.router.use_probe">
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>FAITHFULNESS</legend>
-            <label>enabled
-              <select data-path="faithfulness.enabled">
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </label>
-            <label>min_claim_score
-              <input data-path="faithfulness.min_claim_score" />
-            </label>
-            <label>max_retries
-              <input data-path="faithfulness.max_retries" />
-            </label>
-            <label>strict
-              <select data-path="faithfulness.strict">
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>BOT / ADHD</legend>
-            <label>rate_limit_per_minute
-              <input data-path="bot.rate_limit_per_minute" />
-            </label>
-            <label>max_message_chars
-              <input data-path="bot.max_message_chars" />
-            </label>
-            <label>max_facts
-              <input data-path="adhd.max_facts" />
-            </label>
-            <label>max_summary_chars
-              <input data-path="adhd.max_summary_chars" />
-            </label>
-          </fieldset>
-        </form>
-        <div class="row">
-          <button class="btn" id="btn-save-config">SAVE CONFIG</button>
-          <button class="btn ghost" id="btn-reload-config">RELOAD</button>
-        </div>
-        <pre id="config-msg" class="msg"></pre>
-      </section>
-
-      <!-- LIBRARY / PINECONE UPLOAD -->
+      <!-- LIBRARY -->
       <section id="tab-library" class="panel">
-        <h2>// LIBRARY  (Pinecone → Telegram Books)</h2>
+        <h2>// LIBRARY  (PDF → Pinecone → Telegram Books)</h2>
         <p class="hint">
           Upload a PDF with a <b>display name</b>. That name appears in Telegram: Menu → Books.
-          Namespace becomes <code>global|&lt;Display Name&gt;</code>. Re-upload replaces that book.
+          Re-upload with the same name replaces that book. Big books take a long time on free Gemini.
         </p>
         <form id="form-library" class="form-grid" enctype="multipart/form-data">
           <label>PDF file
             <input type="file" name="file" id="lib-file" accept=".pdf,application/pdf" />
           </label>
           <label>Display name (Telegram)
-            <input type="text" name="display_name" id="lib-name" placeholder="Murtagh General Practice" autocomplete="off" />
+            <input type="text" name="display_name" id="lib-name" placeholder="Rakel" autocomplete="off" />
           </label>
         </form>
         <div class="row">
@@ -242,148 +71,60 @@
           <span id="lib-counts">0 / 0 chunks</span>
           <span id="lib-job">job: —</span>
         </div>
-        <h2>// LIVE LOGS</h2>
+        <h2>// LIVE UPLOAD LOGS</h2>
         <pre id="lib-live-log" class="term-block log">// upload log stream</pre>
 
         <h2>// INDEXED BOOKS</h2>
         <pre id="lib-books" class="term-block">// click REFRESH BOOKS</pre>
       </section>
 
-      <!-- LINK bot ↔ console -->
-      <section id="tab-link" class="panel">
-        <h2>// BOT ↔ CONSOLE LINK</h2>
+      <!-- DEPLOY BOT -->
+      <section id="tab-deploy" class="panel">
+        <h2>// DEPLOY BOT (Render)</h2>
         <p class="hint">
-          Shared token + public Render URLs. Console can pull bot status/books and push
-          cache refresh; bot can POST webhooks back after start/upload.
+          Redeploys the Telegram bot Web Service from git.
+          Needs <code>RENDER_API_KEY</code> on this console’s Environment (Render dashboard).
+          Pick the <b>bot</b> service, not this console.
         </p>
-        <form id="form-link" class="form-grid">
-          <label>BOT_BASE_URL <span class="dim">(https://your-bot.onrender.com — no trailing slash)</span>
-            <input name="BOT_BASE_URL" id="link-bot-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://notbook.onrender.com" />
-          </label>
-          <label>CONSOLE_BASE_URL <span class="dim">(this console public URL)</span>
-            <input name="CONSOLE_BASE_URL" id="link-console-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://notbook-console.onrender.com" />
-          </label>
-          <label>INTERNAL_SERVICE_TOKEN <span class="dim">(same secret on bot + console)</span>
-            <input name="INTERNAL_SERVICE_TOKEN" id="link-token" type="password" autocomplete="off" spellcheck="false" />
-          </label>
-        </form>
         <div class="row">
-          <button class="btn" id="btn-link-save">SAVE LINK</button>
-          <button class="btn ghost" id="btn-link-status">LINK STATUS</button>
-          <button class="btn" id="btn-link-ping">PING BOT</button>
+          <button class="btn" id="btn-bot-list">LOAD SERVICES</button>
+          <button class="btn ghost" id="btn-bot-refresh">REFRESH DETAIL</button>
         </div>
-        <div class="row">
-          <button class="btn ghost" id="btn-link-pull-status">PULL BOT STATUS</button>
-          <button class="btn ghost" id="btn-link-pull-books">PULL BOT BOOKS</button>
-          <button class="btn ghost" id="btn-link-pull-config">PULL BOT CONFIG</button>
-        </div>
-        <div class="row">
-          <button class="btn" id="btn-link-cache">PUSH: CLEAR BOT CACHE</button>
-          <button class="btn" id="btn-link-refresh">PUSH: REFRESH LIBRARY</button>
-          <button class="btn ghost" id="btn-link-sync-render">SYNC SECRETS VIA RENDER API</button>
-        </div>
-        <pre id="link-msg" class="msg"></pre>
-        <h2>// LINK / BOT RESPONSE</h2>
-        <pre id="link-out" class="term-block log">// save URLs + token, then ping</pre>
-        <h2>// EVENTS FROM BOT</h2>
-        <pre id="link-events" class="term-block log">// bot → console webhooks</pre>
-      </section>
-
-      <!-- RENDER -->
-      <section id="tab-render" class="panel">
-        <h2>// RENDER.COM CONTROL</h2>
-        <p class="hint">
-          API controls deploys, env, logs. SSH public key is for shell access (Account → SSH Public Keys).
-          Private key never leaves this machine.
-        </p>
-
-        <h2>// SSH PUBLIC KEY (add on Render)</h2>
-        <div class="row">
-          <button class="btn" id="btn-render-ssh">SHOW SSH KEY</button>
-          <button class="btn ghost" id="btn-copy-ssh">COPY PUBLIC KEY</button>
-        </div>
-        <pre id="render-ssh" class="term-block">// click SHOW SSH KEY</pre>
-
-        <h2>// SERVICE</h2>
-        <div class="row">
-          <button class="btn" id="btn-render-list">LIST SERVICES</button>
-          <button class="btn ghost" id="btn-render-refresh">REFRESH SELECTED</button>
-        </div>
-        <label>Active service
-          <select id="render-service-select">
+        <label>Bot service
+          <select id="bot-service-select">
             <option value="">— load services —</option>
           </select>
         </label>
         <div class="row">
-          <button class="btn" id="btn-render-prefer">SET AS PREFERRED</button>
-          <button class="btn" id="btn-render-deploy">DEPLOY LATEST</button>
-          <button class="btn danger" id="btn-render-deploy-clear">CLEAR CACHE + DEPLOY LATEST</button>
+          <button class="btn" id="btn-bot-deploy">DEPLOY LATEST</button>
+          <button class="btn danger" id="btn-bot-deploy-clear">CLEAR CACHE + DEPLOY</button>
         </div>
-        <div class="row">
-          <button class="btn ghost" id="btn-render-sync">SYNC LOCAL SECRETS → RENDER</button>
-          <button class="btn ghost" id="btn-render-env">ENV (MASKED)</button>
-          <button class="btn" id="btn-render-env-full">PULL FULL ENV</button>
-          <button class="btn danger" id="btn-render-suspend">SUSPEND</button>
-          <button class="btn" id="btn-render-resume">RESUME</button>
-        </div>
-        <pre id="render-msg" class="msg"></pre>
-        <h2>// SERVICE DETAIL</h2>
-        <pre id="render-detail" class="term-block">// list services, then select one</pre>
+        <pre id="deploy-msg" class="msg"></pre>
+        <h2>// SERVICE</h2>
+        <pre id="deploy-detail" class="term-block">// load services, pick the bot</pre>
         <h2>// RECENT DEPLOYS</h2>
-        <pre id="render-deploys" class="term-block log">// —</pre>
-        <h2>// LOGS</h2>
-        <div class="row">
-          <button class="btn" id="btn-render-logs">APP LOGS</button>
-          <button class="btn ghost" id="btn-render-logs-build">BUILD LOGS</button>
-          <button class="btn ghost" id="btn-render-logs-req">REQUEST LOGS</button>
-          <button class="btn ghost" id="btn-render-logs-auto">AUTO-REFRESH ON/OFF</button>
-        </div>
-        <pre id="render-logs" class="term-block log">// fetch logs for selected service</pre>
+        <pre id="deploy-deploys" class="term-block log">// —</pre>
       </section>
 
-      <!-- LOCAL -->
-      <section id="tab-local" class="panel">
-        <h2>// LOCAL RUNTIME</h2>
+      <!-- LOGS -->
+      <section id="tab-logs" class="panel">
+        <h2>// BOT LOGS (Render)</h2>
+        <p class="hint">
+          Uses the service selected under <b>DEPLOY BOT</b>.
+          App logs = running bot. Build logs = install/deploy.
+        </p>
         <div class="row">
-          <button class="btn" id="btn-start">START BOT</button>
-          <button class="btn danger" id="btn-stop">STOP BOT</button>
-          <button class="btn ghost" id="btn-log">TAIL LOG</button>
+          <button class="btn" id="btn-logs-app">APP LOGS</button>
+          <button class="btn ghost" id="btn-logs-build">BUILD LOGS</button>
+          <button class="btn ghost" id="btn-logs-auto">AUTO-REFRESH ON/OFF</button>
         </div>
-        <pre id="local-msg" class="msg"></pre>
-        <pre id="local-log" class="term-block log"></pre>
-      </section>
-
-      <!-- DEPLOY -->
-      <section id="tab-deploy" class="panel">
-        <h2>// DEPLOY TARGETS</h2>
-        <div class="targets" id="targets">
-          <button data-target="local" class="target">LOCAL</button>
-          <button data-target="docker" class="target">DOCKER</button>
-          <button data-target="vps" class="target">VPS</button>
-          <button data-target="render" class="target">RENDER</button>
-          <button data-target="railway" class="target">RAILWAY</button>
-          <button data-target="heroku" class="target">HEROKU</button>
-          <button data-target="fly" class="target">FLY.IO</button>
-          <button data-target="vercel" class="target warn">VERCEL</button>
-        </div>
-        <pre id="deploy-guide" class="term-block">Select a target.</pre>
-        <p class="hint">Generate ARTIFACTS tab files before Docker / Render / Fly / VPS.</p>
-      </section>
-
-      <!-- ARTIFACTS -->
-      <section id="tab-artifacts" class="panel">
-        <h2>// DEPLOY ARTIFACTS</h2>
-        <div class="row">
-          <button class="btn" id="btn-gen">GENERATE ALL</button>
-          <button class="btn ghost" id="btn-list-art">LIST</button>
-        </div>
-        <ul id="art-list" class="file-list"></ul>
-        <pre id="art-view" class="term-block log">// select a file</pre>
+        <pre id="logs-msg" class="msg"></pre>
+        <pre id="logs-out" class="term-block log">// pick bot service on DEPLOY BOT, then fetch logs</pre>
       </section>
     </main>
 
     <footer class="foot">
-      <span>NOTBOOK AI · BLACK/WHITE TERMINAL UI</span>
+      <span>NOTBOOK · STATUS · LIBRARY · DEPLOY · LOGS</span>
       <span id="clock"></span>
     </footer>
   </div>
