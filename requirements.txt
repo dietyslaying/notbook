@@ -6,5 +6,6 @@ pydantic==2.9.2
 aiohttp==3.10.10
 python-dotenv==1.0.1
 pypdfium2>=4.30.0
+flask>=3.0.0
 # Optional local cross-encoder reranker (heavy: torch). Without it, Gemini listwise rerank is used.
 # sentence-transformers>=3.0.0

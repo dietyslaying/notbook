@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NOTBOOK // DEPLOY CONSOLE</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="crt">
+    <header class="top">
+      <div class="brand">
+        <span class="blink">█</span> NOTBOOK DEPLOY CONSOLE
+      </div>
+      <div class="meta" id="meta-line">BOOTING…</div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="status" class="active">STATUS</button>
+      <button data-tab="secrets">SECRETS</button>
+      <button data-tab="config">CONFIG</button>
+      <button data-tab="local">LOCAL</button>
+      <button data-tab="deploy">DEPLOY</button>
+      <button data-tab="artifacts">ARTIFACTS</button>
+    </nav>
+
+    <main>
+      <!-- STATUS -->
+      <section id="tab-status" class="panel active">
+        <h2>// SYSTEM STATUS</h2>
+        <pre id="status-pre" class="term-block">loading…</pre>
+        <div class="row">
+          <button class="btn" id="btn-refresh-status">REFRESH</button>
+          <button class="btn" id="btn-gen-artifacts">GENERATE ARTIFACTS</button>
+        </div>
+        <p class="hint">Ready = Telegram + Gemini + Pinecone keys present in .env</p>
+      </section>
+
+      <!-- SECRETS -->
+      <section id="tab-secrets" class="panel">
+        <h2>// SECRETS  (.env)</h2>
+        <p class="hint">Stored only on this machine. Never commit .env to git.</p>
+        <form id="form-secrets" class="form-grid">
+          <label>TELEGRAM_BOT_TOKEN
+            <input name="TELEGRAM_BOT_TOKEN" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>GEMINI_API_KEY
+            <input name="GEMINI_API_KEY" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>GEMINI_API_KEYS <span class="dim">(optional, comma-separated)</span>
+            <input name="GEMINI_API_KEYS" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>PINECONE_API_KEY
+            <input name="PINECONE_API_KEY" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>ADMIN_USER_IDS <span class="dim">(Telegram numeric ids)</span>
+            <input name="ADMIN_USER_IDS" type="text" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>PORT
+            <input name="PORT" type="text" value="8080" autocomplete="off" />
+          </label>
+        </form>
+        <div class="row">
+          <button class="btn" id="btn-save-secrets">SAVE .ENV</button>
+          <button class="btn ghost" id="btn-reveal-secrets">REVEAL / RELOAD</button>
+        </div>
+        <pre id="secrets-msg" class="msg"></pre>
+      </section>
+
+      <!-- CONFIG -->
+      <section id="tab-config" class="panel">
+        <h2>// CONFIG  (config.yaml)</h2>
+        <form id="form-config" class="form-grid two">
+          <fieldset>
+            <legend>LLM</legend>
+            <label>model_name
+              <input name="llm.model_name" data-path="llm.model_name" />
+            </label>
+            <label>temperature
+              <input name="llm.temperature" data-path="llm.temperature" />
+            </label>
+            <label>max_output_tokens
+              <input name="llm.max_output_tokens" data-path="llm.max_output_tokens" />
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>EMBEDDINGS</legend>
+            <label>provider
+              <select data-path="embeddings.provider">
+                <option value="gemini">gemini</option>
+                <option value="pinecone">pinecone</option>
+              </select>
+            </label>
+            <label>model
+              <input data-path="embeddings.model" />
+            </label>
+            <label>dimension
+              <input data-path="embeddings.dimension" />
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>RERANKER</legend>
+            <label>enabled
+              <select data-path="reranker.enabled">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <label>backend
+              <select data-path="reranker.backend">
+                <option value="auto">auto</option>
+                <option value="gemini">gemini</option>
+                <option value="cross_encoder">cross_encoder</option>
+                <option value="none">none</option>
+              </select>
+            </label>
+            <label>candidate_k
+              <input data-path="reranker.candidate_k" />
+            </label>
+            <label>top_k
+              <input data-path="reranker.top_k" />
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>PINECONE / RAG</legend>
+            <label>index_name
+              <input data-path="pinecone.index_name" />
+            </label>
+            <label>dimension
+              <input data-path="pinecone.dimension" />
+            </label>
+            <label>top_k_dense
+              <input data-path="pinecone.top_k_dense" />
+            </label>
+            <label>hybrid_alpha
+              <input data-path="pinecone.hybrid_alpha" />
+            </label>
+            <label>router.max_namespaces
+              <input data-path="pinecone.router.max_namespaces" />
+            </label>
+            <label>router.use_probe
+              <select data-path="pinecone.router.use_probe">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>FAITHFULNESS</legend>
+            <label>enabled
+              <select data-path="faithfulness.enabled">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+            <label>min_claim_score
+              <input data-path="faithfulness.min_claim_score" />
+            </label>
+            <label>max_retries
+              <input data-path="faithfulness.max_retries" />
+            </label>
+            <label>strict
+              <select data-path="faithfulness.strict">
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>BOT / ADHD</legend>
+            <label>rate_limit_per_minute
+              <input data-path="bot.rate_limit_per_minute" />
+            </label>
+            <label>max_message_chars
+              <input data-path="bot.max_message_chars" />
+            </label>
+            <label>max_facts
+              <input data-path="adhd.max_facts" />
+            </label>
+            <label>max_summary_chars
+              <input data-path="adhd.max_summary_chars" />
+            </label>
+          </fieldset>
+        </form>
+        <div class="row">
+          <button class="btn" id="btn-save-config">SAVE CONFIG</button>
+          <button class="btn ghost" id="btn-reload-config">RELOAD</button>
+        </div>
+        <pre id="config-msg" class="msg"></pre>
+      </section>
+
+      <!-- LOCAL -->
+      <section id="tab-local" class="panel">
+        <h2>// LOCAL RUNTIME</h2>
+        <div class="row">
+          <button class="btn" id="btn-start">START BOT</button>
+          <button class="btn danger" id="btn-stop">STOP BOT</button>
+          <button class="btn ghost" id="btn-log">TAIL LOG</button>
+        </div>
+        <pre id="local-msg" class="msg"></pre>
+        <pre id="local-log" class="term-block log"></pre>
+      </section>
+
+      <!-- DEPLOY -->
+      <section id="tab-deploy" class="panel">
+        <h2>// DEPLOY TARGETS</h2>
+        <div class="targets" id="targets">
+          <button data-target="local" class="target">LOCAL</button>
+          <button data-target="docker" class="target">DOCKER</button>
+          <button data-target="vps" class="target">VPS</button>
+          <button data-target="render" class="target">RENDER</button>
+          <button data-target="railway" class="target">RAILWAY</button>
+          <button data-target="heroku" class="target">HEROKU</button>
+          <button data-target="fly" class="target">FLY.IO</button>
+          <button data-target="vercel" class="target warn">VERCEL</button>
+        </div>
+        <pre id="deploy-guide" class="term-block">Select a target.</pre>
+        <p class="hint">Generate ARTIFACTS tab files before Docker / Render / Fly / VPS.</p>
+      </section>
+
+      <!-- ARTIFACTS -->
+      <section id="tab-artifacts" class="panel">
+        <h2>// DEPLOY ARTIFACTS</h2>
+        <div class="row">
+          <button class="btn" id="btn-gen">GENERATE ALL</button>
+          <button class="btn ghost" id="btn-list-art">LIST</button>
+        </div>
+        <ul id="art-list" class="file-list"></ul>
+        <pre id="art-view" class="term-block log">// select a file</pre>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>NOTBOOK AI · BLACK/WHITE TERMINAL UI</span>
+      <span id="clock"></span>
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@
 # Local DB + ingest temp
 data/
 evals/last_results.json
+deploy_artifacts/
 
 # Python
 __pycache__/
