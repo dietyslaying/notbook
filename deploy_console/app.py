@@ -96,7 +96,26 @@ def _ensure_dirs() -> None:
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 
-def _read_env() -> dict[str, str]:
+# Keys the console cares about (file + process env merge)
+_ENV_KEYS = (
+    "TELEGRAM_BOT_TOKEN",
+    "GEMINI_API_KEY",
+    "GEMINI_API_KEYS",
+    "PINECONE_API_KEY",
+    "ADMIN_USER_IDS",
+    "ADMIN_USER_ID",
+    "PORT",
+    "RENDER_API_KEY",
+    "RENDER_SERVICE_ID",
+    "INTERNAL_SERVICE_TOKEN",
+    "BOT_BASE_URL",
+    "CONSOLE_BASE_URL",
+    "CONSOLE_PASSWORD",
+    "CONSOLE_USER",
+)
+
+
+def _read_env_file() -> dict[str, str]:
     data: dict[str, str] = {}
     if not ENV_PATH.is_file():
         return data
@@ -107,6 +126,125 @@ def _read_env() -> dict[str, str]:
         k, _, v = line.partition("=")
         data[k.strip()] = v.strip().strip('"').strip("'")
     return data
+
+
+def _read_env() -> dict[str, str]:
+    """
+    Merge .env file + process environment.
+    On Render, process env (dashboard) is the source of truth that survives deploys.
+    """
+    data = _read_env_file()
+    for k in _ENV_KEYS:
+        pv = (os.getenv(k) or "").strip()
+        if pv and not (data.get(k) or "").strip():
+            data[k] = pv
+        # Prefer non-empty process env over empty file on cloud
+        if os.getenv("RENDER") and pv:
+            data[k] = pv
+    return data
+
+
+def _apply_env_to_process(values: dict[str, str]) -> None:
+    """Make secrets available to this running process immediately."""
+    for k, v in values.items():
+        if v is None:
+            continue
+        vs = str(v).strip()
+        if not vs:
+            continue
+        if "…" in vs or set(vs) <= {"*"}:
+            continue
+        os.environ[k] = vs
+
+
+def _discover_render_service_id(client: Any) -> str:
+    """Match this host to a Render service by public URL."""
+    me = (
+        os.getenv("RENDER_EXTERNAL_URL")
+        or os.getenv("RENDER_EXTERNAL_HOSTNAME")
+        or ""
+    ).rstrip("/")
+    if not me:
+        return ""
+    me_host = me.replace("https://", "").replace("http://", "").split("/")[0].lower()
+    try:
+        for s in client.list_services(limit=50):
+            sm = client.summarize_service(s)
+            url = (sm.get("url") or "").rstrip("/")
+            host = url.replace("https://", "").replace("http://", "").split("/")[0].lower()
+            if host and host == me_host:
+                return str(sm.get("id") or "")
+            # also match by service name in hostname
+            name = (sm.get("name") or "").lower().replace(" ", "-")
+            if name and name in me_host:
+                return str(sm.get("id") or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _persist_env_to_render(updates: dict[str, str]) -> dict[str, Any]:
+    """
+    Upsert env vars onto THIS console's Render service (survives redeploy).
+    Requires RENDER_API_KEY. Does not trigger deploy by default.
+    """
+    out: dict[str, Any] = {"attempted": False, "ok": False}
+    if not os.getenv("RENDER"):
+        out["skipped"] = "not_on_render"
+        return out
+    key = (updates.get("RENDER_API_KEY") or os.getenv("RENDER_API_KEY") or "").strip()
+    if not key:
+        out["skipped"] = "no_RENDER_API_KEY"
+        out["hint"] = (
+            "Set RENDER_API_KEY once in the Render dashboard Environment for this "
+            "console service, redeploy, then SAVE SECRETS again — we can push the rest."
+        )
+        return out
+    try:
+        from render_api import RenderClient
+
+        client = RenderClient(key)
+        sid = (
+            (updates.get("RENDER_SERVICE_ID") or os.getenv("RENDER_SERVICE_ID") or "")
+            .strip()
+        )
+        if not sid:
+            sid = _discover_render_service_id(client)
+        if not sid:
+            out["attempted"] = True
+            out["error"] = (
+                "Could not find this service id. In Render dashboard open this console "
+                "service → copy Service ID into RENDER_SERVICE_ID, or set it in SECRETS."
+            )
+            return out
+        # Never push empty placeholders; include secrets we have values for
+        push = {
+            k: v
+            for k, v in updates.items()
+            if v and "…" not in str(v) and set(str(v)) != {"*"}
+        }
+        # Always keep API key + service id on the service if present
+        if key:
+            push["RENDER_API_KEY"] = key
+        push["RENDER_SERVICE_ID"] = sid
+        client.upsert_env_vars(sid, push)
+        out.update(
+            {
+                "attempted": True,
+                "ok": True,
+                "service_id": sid,
+                "synced_keys": sorted(push.keys()),
+                "message": (
+                    f"Saved to Render Environment on service {sid} "
+                    f"({len(push)} keys). Survives redeploy."
+                ),
+            }
+        )
+        return out
+    except Exception as e:
+        out["attempted"] = True
+        out["error"] = str(e)[:400]
+        return out
 
 
 def _write_env(values: dict[str, str]) -> None:
@@ -1040,15 +1178,45 @@ def api_env_get():
             "GEMINI_API_KEY",
             "GEMINI_API_KEYS",
             "PINECONE_API_KEY",
+            "RENDER_API_KEY",
+            "INTERNAL_SERVICE_TOKEN",
+            "CONSOLE_PASSWORD",
         }:
             out[k] = _mask(v)
         else:
             out[k] = v
-    return jsonify({"ok": True, "env": out, "masked": masked, "path": str(ENV_PATH)})
+    on_render = bool(os.getenv("RENDER"))
+    return jsonify(
+        {
+            "ok": True,
+            "env": out,
+            "masked": masked,
+            "path": str(ENV_PATH),
+            "on_render": on_render,
+            "persistence": (
+                "render_dashboard"
+                if on_render
+                else "local_dotenv"
+            ),
+            "hint": (
+                "On Render, secrets only survive redeploy if they are in the service "
+                "Environment (dashboard) or pushed via RENDER_API_KEY. "
+                "SAVE SECRETS writes a local .env that is wiped on every deploy."
+                if on_render
+                else "Local: values are saved to project .env file."
+            ),
+        }
+    )
 
 
 @app.post("/api/env")
 def api_env_post():
+    """
+    Save secrets:
+      1) merge into .env file (ephemeral on Render)
+      2) apply to this process immediately
+      3) on Render + RENDER_API_KEY: upsert into Render Environment (persistent)
+    """
     body = request.get_json(force=True, silent=True) or {}
     values = body.get("env") or body
     if not isinstance(values, dict):
@@ -1062,8 +1230,49 @@ def api_env_post():
         if "…" in vs or (vs and set(vs) <= {"*"}):
             continue
         current[k] = vs
-    _write_env(current)
-    return jsonify({"ok": True, "message": f"Wrote {ENV_PATH.name}"})
+    file_ok = True
+    file_err = ""
+    try:
+        _write_env(current)
+    except Exception as e:
+        file_ok = False
+        file_err = str(e)[:200]
+    _apply_env_to_process(current)
+
+    render_result = _persist_env_to_render(current)
+    on_render = bool(os.getenv("RENDER"))
+
+    if on_render and render_result.get("ok"):
+        msg = render_result.get("message") or "Saved to Render Environment"
+    elif on_render:
+        msg = (
+            "Applied for THIS running process only. "
+            "NOT durable across redeploy yet. "
+            + (
+                render_result.get("hint")
+                or render_result.get("error")
+                or "Add keys in Render Dashboard → this console service → Environment, then Redeploy."
+            )
+        )
+    else:
+        msg = f"Wrote {ENV_PATH.name}" + (f" (file warning: {file_err})" if file_err else "")
+
+    return jsonify(
+        {
+            "ok": True,
+            "message": msg,
+            "file_written": file_ok,
+            "file_error": file_err or None,
+            "applied_to_process": True,
+            "on_render": on_render,
+            "render_persist": render_result,
+            "warning": (
+                None
+                if (not on_render or render_result.get("ok"))
+                else "Render disk .env is wiped on every deploy. Use Dashboard Environment or RENDER_API_KEY push."
+            ),
+        }
+    )
 
 
 @app.get("/api/config")

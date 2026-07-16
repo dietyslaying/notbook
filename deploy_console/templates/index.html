@@ -46,8 +46,14 @@
 
       <!-- SECRETS -->
       <section id="tab-secrets" class="panel">
-        <h2>// SECRETS  (.env)</h2>
-        <p class="hint">Stored only on this machine. Never commit .env to git.</p>
+        <h2>// SECRETS</h2>
+        <p class="hint">
+          <b>On your PC:</b> SAVE writes project <code>.env</code>.
+          <b>On Render:</b> the disk is wiped every deploy — keys must live in
+          <b>Dashboard → this service → Environment</b> (or SAVE will push there if
+          <code>RENDER_API_KEY</code> is already set on the service).
+          Never commit real keys to git.
+        </p>
         <form id="form-secrets" class="form-grid">
           <label>TELEGRAM_BOT_TOKEN
             <input name="TELEGRAM_BOT_TOKEN" type="password" autocomplete="off" spellcheck="false" />

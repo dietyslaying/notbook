@@ -156,10 +156,18 @@
     <!-- ========== SECRETS ========== -->
     <h2 id="secrets">4. SECRETS tab — passwords and API keys</h2>
     <p>
-      This is the keychain for <b>this console</b> when you run it on your computer
-      (saved into a file called <code>.env</code>).
-      On Render, also paste the same values under the service’s
-      <b>Environment</b> page so they survive restarts and redeploys.
+      This is the keychain for <b>this console</b>.
+    </p>
+    <div class="box warn">
+      <b>On Render, “SAVE .ENV” alone is temporary.</b><br />
+      Render erases the disk every deploy. Keys only stick if they are in
+      <b>Dashboard → your console Web Service → Environment</b>.
+      After you put them there, click Manual Deploy once.
+      If you also set <code>RENDER_API_KEY</code> in that Environment, SAVE can push
+      other keys to Render for you so the next deploy keeps them.
+    </div>
+    <p>
+      On your own computer, SAVE writes a local file called <code>.env</code>.
     </p>
 
     <h3>Each field</h3>

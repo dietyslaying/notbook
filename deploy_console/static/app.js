@@ -141,7 +141,19 @@ $("#btn-save-secrets")?.addEventListener("click", async (ev) => {
   });
   try {
     const r = await api("/api/env", { method: "POST", body: JSON.stringify({ env }) });
-    setMsg("#secrets-msg", r.message || "saved");
+    const lines = [r.message || "saved"];
+    if (r.warning) lines.push("WARNING: " + r.warning);
+    if (r.render_persist && r.render_persist.ok) {
+      lines.push(
+        "Render durable keys: " + (r.render_persist.synced_keys || []).join(", ")
+      );
+    } else if (r.on_render && r.render_persist && !r.render_persist.ok) {
+      lines.push(
+        "How to make it stick: Render dashboard → your CONSOLE service → Environment → " +
+          "add TELEGRAM/GEMINI/PINECONE (and RENDER_API_KEY once) → Save → Manual Deploy."
+      );
+    }
+    setMsg("#secrets-msg", lines.join("\n"), !r.warning);
     await refreshStatus();
   } catch (e) {
     setMsg("#secrets-msg", String(e), false);
