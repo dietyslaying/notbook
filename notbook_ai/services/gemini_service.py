@@ -9,7 +9,7 @@ import re
 import time
 from typing import Any
 
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 
 from config import config
 from core.ndm_validator import NDMValidator
@@ -64,11 +64,95 @@ class GeminiService:
         )
         self.pinecone_cfg = config.raw_config.get("pinecone") or {}
         self.faith_cfg = config.raw_config.get("faithfulness") or {}
-        self._pc = Pinecone(api_key=config.pinecone_api_key)
-        self._index = self._pc.Index(self.pinecone_cfg.get("index_name", "library-index"))
+        # Lazy: do NOT connect to a specific index at import time.
+        # Missing index was crashing Render before the health port opened.
+        self._pc: Pinecone | None = None
+        self._index = None
+        self._index_ready = False
         self._ns_cache: tuple[float, list[str]] | None = None
         self._ns_ttl = 300.0
         self.router: BookRouter = router_from_config(self.pinecone_cfg)
+        self.index_name = str(
+            self.pinecone_cfg.get("index_name") or "library-index-v2"
+        )
+        self.index_dimension = int(
+            self.pinecone_cfg.get("dimension")
+            or (config.raw_config.get("embeddings") or {}).get("dimension")
+            or 768
+        )
+
+    def _client(self) -> Pinecone:
+        if self._pc is None:
+            self._pc = Pinecone(api_key=config.pinecone_api_key)
+        return self._pc
+
+    def _ensure_index(self):
+        """Return Pinecone Index; create empty index if it does not exist yet."""
+        if self._index is not None and self._index_ready:
+            return self._index
+
+        pc = self._client()
+        name = self.index_name
+        dim = self.index_dimension
+
+        try:
+            names = list(pc.list_indexes().names())
+        except Exception as e:
+            logger.warning("list_indexes failed: %s", e)
+            names = []
+
+        if name not in names:
+            logger.warning(
+                "Pinecone index %r not found — creating (dim=%s). "
+                "You still need to ingest PDFs before answers work.",
+                name,
+                dim,
+            )
+            try:
+                pc.create_index(
+                    name=name,
+                    dimension=dim,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+                for _ in range(60):
+                    try:
+                        st = pc.describe_index(name).status
+                        if st and st.get("ready"):
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(2)
+            except Exception as e:
+                # Race: another worker may have created it
+                logger.warning("create_index %r: %s", name, e)
+                try:
+                    names = list(pc.list_indexes().names())
+                except Exception:
+                    names = []
+                if name not in names:
+                    raise RuntimeError(
+                        f"Pinecone index {name!r} missing and could not be created: {e}"
+                    ) from e
+        else:
+            try:
+                info = pc.describe_index(name)
+                existing = getattr(info, "dimension", None)
+                if existing is not None and int(existing) != int(dim):
+                    logger.error(
+                        "Index %r is %s-d but config wants %s-d. "
+                        "Change pinecone.index_name or dimension and re-ingest.",
+                        name,
+                        existing,
+                        dim,
+                    )
+            except Exception as e:
+                logger.debug("describe_index dim check: %s", e)
+
+        self._index = pc.Index(name)
+        self._index_ready = True
+        logger.info("Pinecone index ready: %s (dim=%s)", name, dim)
+        return self._index
 
     async def generate_json(self, prompt: str) -> str:
         return await gemini_client.generate(prompt, json_mode=True)
@@ -81,7 +165,8 @@ class GeminiService:
         if self._ns_cache and now - self._ns_cache[0] < self._ns_ttl:
             return self._ns_cache[1]
         try:
-            stats = self._index.describe_index_stats()
+            index = self._ensure_index()
+            stats = index.describe_index_stats()
             namespaces = [
                 ns
                 for ns in (stats.namespaces or {}).keys()
@@ -108,9 +193,10 @@ class GeminiService:
     ) -> dict[str, float]:
         """Cheap top_k=1 probe per namespace for content-aware routing."""
         probe: dict[str, float] = {}
+        index = self._ensure_index()
         for ns in all_ns:
             try:
-                res = self._index.query(
+                res = index.query(
                     namespace=ns,
                     vector=vector,
                     top_k=1,
@@ -183,10 +269,11 @@ class GeminiService:
             if not namespaces:
                 return "", "", []
 
+            index = self._ensure_index()
             all_matches: list[dict] = []
             for ns in namespaces:
                 try:
-                    res = self._index.query(
+                    res = index.query(
                         namespace=ns,
                         vector=vector,
                         top_k=top_k_ns,

@@ -21,8 +21,6 @@ from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from config import config
-from handlers.callback_handler import CallbackHandler
-from handlers.message_handler import MessageHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,11 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("notbook")
 
-bot = Bot(token=config.telegram_token)
-dp = Dispatcher()
-msg_handler = MessageHandler()
-cb_handler = CallbackHandler()
-
+# Health app first — so Render sees an open port even if handlers are slow to import.
 app = web.Application()
 
 
@@ -45,10 +39,19 @@ async def handle_health(_request: web.Request) -> web.Response:
 app.router.add_get("/", handle_health)
 app.router.add_get("/health", handle_health)
 
+bot = Bot(token=config.telegram_token)
+dp = Dispatcher()
+
+# Lazy-ish handler init: import after logging setup; failures are logged not silent.
+from handlers.callback_handler import CallbackHandler  # noqa: E402
+from handlers.message_handler import MessageHandler  # noqa: E402
+
+msg_handler = MessageHandler()
+cb_handler = CallbackHandler()
+
 
 @dp.message(CommandStart())
 async def start_cmd(message: Message) -> None:
-    # Delegate to shared help text
     if message.text:
         await msg_handler.handle(message, bot)
 
@@ -80,17 +83,31 @@ async def handle_callback(callback: CallbackQuery) -> None:
 
 
 async def main() -> None:
+    # Bind health port ASAP for Render / Railway / Fly probes.
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "8080"))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info("Health server on port %s", port)
+    logger.info("Health server on 0.0.0.0:%s", port)
     logger.info(
-        "Admins: %s | model=%s",
+        "Admins: %s | model=%s | index=%s",
         list(config.admin_user_ids) or "(none)",
         config.raw_config["llm"]["model_name"],
+        (config.raw_config.get("pinecone") or {}).get("index_name"),
     )
+
+    # Ensure Pinecone index exists (create empty if missing) without blocking boot forever.
+    try:
+        from services.gemini_service import gemini_service
+
+        await asyncio.to_thread(gemini_service._ensure_index)
+        logger.info("Pinecone index ready")
+    except Exception:
+        logger.exception(
+            "Pinecone index not ready yet — bot will still poll; "
+            "RAG answers fail until index exists + books are ingested"
+        )
 
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Starting Notbook AI polling")
