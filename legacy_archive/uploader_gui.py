@@ -76,9 +76,17 @@ FMO = ("Consolas",  9)
 def _get_pinecone():
     """Return (pc, index) or raise."""
     from pinecone import Pinecone
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
     key = os.getenv("PINECONE_API_KEY")
     if not key:
-        raise EnvironmentError("PINECONE_API_KEY not set in .env")
+        raise EnvironmentError(
+            "PINECONE_API_KEY not set. Add it to .env or the environment (never hardcode)."
+        )
     pc = Pinecone(api_key=key)
     idx = pc.Index(CONFIG["pinecone"]["index_name"])
     return pc, idx

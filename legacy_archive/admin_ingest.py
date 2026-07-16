@@ -7,6 +7,13 @@ import logging
 import pypdfium2 as pdfium
 from pinecone import Pinecone, ServerlessSpec
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 

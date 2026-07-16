@@ -10,6 +10,8 @@ deploy_artifacts/
 # SSH private keys for Render shell (public can be shared)
 data/ssh/
 !data/ssh/*.pub
+# Temporary secret-rewrite helpers (never commit)
+data/_secret_replacements.txt
 
 # Python
 __pycache__/

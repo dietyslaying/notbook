@@ -1,36 +1,38 @@
-import os
+"""Legacy: smoke test. Uses env vars + dotenv only."""
+
+from __future__ import annotations
+
 import asyncio
-from dotenv import load_dotenv
+import os
+import sys
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
 
-async def main():
-    import gemini_service
-    
-    query = "Tell me about asthma"
-    namespace = "global|murtaghs"
-    
-    # 1. Embed the user's question
-    print("Embedding query...")
-    query_embedding = gemini_service.pc.inference.embed(
-        model=gemini_service.config['pinecone']['embedding_model'],
-        inputs=[query],
-        parameters={"input_type": "query"}
-    )[0].values
+    load_dotenv()
+except ImportError:
+    pass
 
-    # 2. Search Pinecone
-    print("Searching Pinecone...")
-    search_results = gemini_service.index.query(
-        namespace=namespace,
-        vector=query_embedding,
-        top_k=12,
-        include_metadata=True
-    )
-    
-    print(f"Total matches found: {len(search_results.matches)}")
-    for i, m in enumerate(search_results.matches):
-        print(f"Match {i+1}: Score = {m.score}, Page = {m.metadata.get('page')}")
-        print(f"Text snippet: {m.metadata.get('text', '')[:100]}...")
+
+async def main() -> None:
+    if not os.getenv("PINECONE_API_KEY"):
+        print("PINECONE_API_KEY missing", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        sys.path.insert(0, os.path.abspath("notbook_ai"))
+        from services.gemini_service import gemini_service
+
+        query = os.getenv("TEST_QUERY", "Tell me about asthma")
+        print("Using notbook_ai gemini_service.retrieve…")
+        ctx, hint, cites = await gemini_service.retrieve(query)
+        print("hint:", hint)
+        print("citations:", len(cites))
+        print("context sample:", (ctx or "")[:300])
+    except Exception as e:
+        print("Active service path failed:", e)
+        print("Fall back: run test_pinecone_sync.py with Pinecone inference.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
