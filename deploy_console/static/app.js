@@ -56,6 +56,8 @@ async function refreshStatus() {
     `  GEMINI     ${s.secrets.GEMINI_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  PINECONE   ${s.secrets.PINECONE_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  ADMIN_IDS  ${s.secrets.ADMIN_USER_IDS ? "[OK]" : "[—]"}`,
+    `  RENDER     ${s.secrets.RENDER_API_KEY ? "[OK]" : "[MISSING]"}`,
+    `  RENDER_SID ${s.render_service_id || "—"}`,
     ``,
     `STACK`,
     `  LLM        ${s.llm_model || "—"}`,
@@ -228,6 +230,190 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
   }
 });
 
+/* Render.com */
+function selectedRenderServiceId() {
+  return ($("#render-service-select")?.value || "").trim();
+}
+
+async function loadRenderServices() {
+  const r = await api("/api/render/services");
+  if (!r.ok) throw new Error(r.error || "list failed");
+  const sel = $("#render-service-select");
+  const prev = selectedRenderServiceId() || r.preferred_service_id || "";
+  sel.innerHTML = "";
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = r.count ? `— ${r.count} services —` : "— no services —";
+  sel.appendChild(opt0);
+  (r.services || []).forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.id;
+    const sus = s.suspended === "suspended" ? " [SUSPENDED]" : "";
+    o.textContent = `${s.name || s.id} (${s.type || "?"})${sus}`;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+  setMsg("#render-msg", `loaded ${r.count} service(s)`);
+  if (sel.value) await refreshRenderDetail();
+  return r;
+}
+
+async function refreshRenderDetail() {
+  const sid = selectedRenderServiceId();
+  if (!sid) {
+    $("#render-detail").textContent = "// select a service";
+    $("#render-deploys").textContent = "// —";
+    return;
+  }
+  const r = await api("/api/render/service/" + encodeURIComponent(sid));
+  if (!r.ok) throw new Error(r.error || "detail failed");
+  const s = r.service || {};
+  $("#render-detail").textContent = [
+    `ID        ${s.id || "—"}`,
+    `NAME      ${s.name || "—"}`,
+    `TYPE      ${s.type || "—"}`,
+    `URL       ${s.url || "—"}`,
+    `REGION    ${s.region || "—"}`,
+    `BRANCH    ${s.branch || "—"}`,
+    `SUSPEND   ${s.suspended || "—"}`,
+    `AUTO_DEP  ${s.autoDeploy || "—"}`,
+    `UPDATED   ${s.updatedAt || "—"}`,
+    `DASHBOARD ${s.dashboard || "—"}`,
+  ].join("\n");
+  const deps = r.deploys || [];
+  if (!deps.length) {
+    $("#render-deploys").textContent = "(no recent deploys)";
+  } else {
+    $("#render-deploys").textContent = deps
+      .map(
+        (d, i) =>
+          `${i + 1}. ${d.status || "?"}  ${d.createdAt || ""}\n` +
+          `   id=${d.id || "—"}\n` +
+          `   trigger=${d.trigger || "—"}  finished=${d.finishedAt || "—"}`
+      )
+      .join("\n\n");
+  }
+}
+
+$("#btn-render-list")?.addEventListener("click", () => {
+  loadRenderServices().catch((e) => setMsg("#render-msg", String(e), false));
+});
+$("#btn-render-refresh")?.addEventListener("click", () => {
+  refreshRenderDetail()
+    .then(() => setMsg("#render-msg", "detail refreshed"))
+    .catch((e) => setMsg("#render-msg", String(e), false));
+});
+$("#render-service-select")?.addEventListener("change", () => {
+  refreshRenderDetail().catch((e) => setMsg("#render-msg", String(e), false));
+});
+
+$("#btn-render-prefer")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  try {
+    await api("/api/render/prefer", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid }),
+    });
+    setMsg("#render-msg", `preferred service → ${sid}`);
+    await refreshStatus();
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
+async function renderDeploy(clearCache) {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  setMsg("#render-msg", clearCache ? "deploy + clear cache…" : "deploying…");
+  try {
+    const r = await api("/api/render/deploy", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid, clear_cache: !!clearCache }),
+    });
+    const d = r.deploy || {};
+    setMsg(
+      "#render-msg",
+      `deploy triggered\nid=${d.id || "?"}\nstatus=${d.status || "?"}`
+    );
+    await refreshRenderDetail();
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+}
+$("#btn-render-deploy")?.addEventListener("click", () => renderDeploy(false));
+$("#btn-render-deploy-clear")?.addEventListener("click", () => renderDeploy(true));
+
+$("#btn-render-sync")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  if (
+    !confirm(
+      "Push local .env secrets (Telegram/Gemini/Pinecone/Admin) to this Render service and deploy?"
+    )
+  )
+    return;
+  setMsg("#render-msg", "syncing secrets + deploy…");
+  try {
+    const r = await api("/api/render/env/sync", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid, deploy: true }),
+    });
+    setMsg(
+      "#render-msg",
+      `synced: ${(r.synced_keys || []).join(", ")}\ndeploy=${(r.deploy && r.deploy.id) || "ok"}`
+    );
+    await refreshRenderDetail();
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
+$("#btn-render-env")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  try {
+    const r = await api("/api/render/env/" + encodeURIComponent(sid) + "?masked=1");
+    const lines = (r.env || []).map((e) => `${e.key}=${e.value}`);
+    $("#render-detail").textContent =
+      `ENV VARS (${lines.length})\n\n` + (lines.join("\n") || "(none)");
+    setMsg("#render-msg", "env keys loaded (values masked)");
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
+$("#btn-render-suspend")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  if (!confirm("Suspend this Render service?")) return;
+  try {
+    await api("/api/render/suspend", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid }),
+    });
+    setMsg("#render-msg", "suspend requested");
+    await refreshRenderDetail();
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
+$("#btn-render-resume")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  try {
+    await api("/api/render/resume", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid }),
+    });
+    setMsg("#render-msg", "resume requested");
+    await refreshRenderDetail();
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
 /* local */
 $("#btn-start")?.addEventListener("click", async () => {
   try {
@@ -329,3 +515,4 @@ loadSecrets(false).catch(() => {});
 loadConfig().catch(() => {});
 listArtifacts().catch(() => {});
 refreshBooks().catch(() => {});
+loadRenderServices().catch(() => {});

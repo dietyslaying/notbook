@@ -20,6 +20,7 @@
       <button data-tab="secrets">SECRETS</button>
       <button data-tab="config">CONFIG</button>
       <button data-tab="library">LIBRARY</button>
+      <button data-tab="render">RENDER</button>
       <button data-tab="local">LOCAL</button>
       <button data-tab="deploy">DEPLOY</button>
       <button data-tab="artifacts">ARTIFACTS</button>
@@ -59,6 +60,12 @@
           </label>
           <label>PORT
             <input name="PORT" type="text" value="8080" autocomplete="off" />
+          </label>
+          <label>RENDER_API_KEY <span class="dim">(dashboard → Account → API Keys)</span>
+            <input name="RENDER_API_KEY" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>RENDER_SERVICE_ID <span class="dim">(preferred service — set from RENDER tab)</span>
+            <input name="RENDER_SERVICE_ID" type="text" autocomplete="off" spellcheck="false" />
           </label>
         </form>
         <div class="row">
@@ -212,6 +219,40 @@
         <pre id="lib-msg" class="msg"></pre>
         <h2>// INDEXED BOOKS</h2>
         <pre id="lib-books" class="term-block">// click REFRESH BOOKS</pre>
+      </section>
+
+      <!-- RENDER -->
+      <section id="tab-render" class="panel">
+        <h2>// RENDER.COM</h2>
+        <p class="hint">
+          Manage services via API key. Prefer a service, deploy, sync secrets from local .env,
+          view recent deploys. Key stays in local .env only.
+        </p>
+        <div class="row">
+          <button class="btn" id="btn-render-list">LIST SERVICES</button>
+          <button class="btn ghost" id="btn-render-refresh">REFRESH SELECTED</button>
+        </div>
+        <label>Active service
+          <select id="render-service-select">
+            <option value="">— load services —</option>
+          </select>
+        </label>
+        <div class="row">
+          <button class="btn" id="btn-render-prefer">SET AS PREFERRED</button>
+          <button class="btn" id="btn-render-deploy">DEPLOY</button>
+          <button class="btn ghost" id="btn-render-deploy-clear">DEPLOY + CLEAR CACHE</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost" id="btn-render-sync">SYNC LOCAL SECRETS → RENDER</button>
+          <button class="btn ghost" id="btn-render-env">SHOW ENV KEYS</button>
+          <button class="btn danger" id="btn-render-suspend">SUSPEND</button>
+          <button class="btn" id="btn-render-resume">RESUME</button>
+        </div>
+        <pre id="render-msg" class="msg"></pre>
+        <h2>// SERVICE DETAIL</h2>
+        <pre id="render-detail" class="term-block">// list services, then select one</pre>
+        <h2>// RECENT DEPLOYS</h2>
+        <pre id="render-deploys" class="term-block log">// —</pre>
       </section>
 
       <!-- LOCAL -->
