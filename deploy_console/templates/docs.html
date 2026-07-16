@@ -6,162 +6,465 @@
   <title>Notbook Console — Simple Guide</title>
   <link rel="stylesheet" href="/static/style.css" />
   <style>
-    .docs { max-width: 720px; margin: 0 auto; padding: 1.25rem 1.1rem 3rem; }
-    .docs h1 { font-size: 1.25rem; margin: 0 0 0.5rem; letter-spacing: 0.04em; }
-    .docs h2 { font-size: 0.95rem; margin: 1.75rem 0 0.5rem; border-bottom: 1px dashed #000; padding-bottom: 0.25rem; }
-    .docs p, .docs li { font-size: 13px; line-height: 1.55; color: #111; }
-    .docs .lead { color: #333; margin-bottom: 1rem; }
-    .docs .box { border: 1px solid #000; padding: 0.75rem 0.85rem; margin: 0.75rem 0; background: #fff; }
+    .docs { max-width: 760px; margin: 0 auto; padding: 1.25rem 1.1rem 3.5rem; }
+    .docs h1 { font-size: 1.2rem; margin: 0; letter-spacing: 0.04em; }
+    .docs h2 { font-size: 0.98rem; margin: 1.85rem 0 0.55rem; border-bottom: 1px dashed #000; padding-bottom: 0.3rem; }
+    .docs h3 { font-size: 0.88rem; margin: 1.1rem 0 0.35rem; }
+    .docs p, .docs li { font-size: 13px; line-height: 1.6; color: #111; }
+    .docs .lead { color: #333; margin: 0.75rem 0 1rem; }
+    .docs .box { border: 1px solid #000; padding: 0.8rem 0.9rem; margin: 0.85rem 0; background: #fff; }
+    .docs .box.warn { background: #f6f6f6; }
     .docs .dim { color: #555; font-size: 12px; }
     .docs a { color: #000; font-weight: 600; }
-    .docs ul { padding-left: 1.2rem; }
-    .docs .topbar { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; border-bottom: 2px solid #000; padding-bottom: 0.5rem; }
+    .docs ul, .docs ol { padding-left: 1.25rem; margin: 0.4rem 0 0.6rem; }
+    .docs li { margin: 0.28rem 0; }
+    .docs code { font-size: 12px; background: #eee; padding: 0.05rem 0.28rem; border: 1px solid #ccc; }
+    .docs .topbar {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+      margin-bottom: 0.75rem; border-bottom: 2px solid #000; padding-bottom: 0.55rem;
+      flex-wrap: wrap;
+    }
+    .docs .toc { border: 1px solid #000; padding: 0.7rem 0.9rem; margin: 1rem 0; }
+    .docs .toc a { font-weight: 500; text-decoration: underline; }
+    .docs .toc ul { list-style: none; padding-left: 0; columns: 2; column-gap: 1.5rem; }
+    .docs .toc li { break-inside: avoid; margin: 0.2rem 0; }
+    .docs kbd {
+      font-size: 11px; border: 1px solid #000; padding: 0.05rem 0.35rem;
+      background: #f0f0f0; font-family: inherit;
+    }
+    @media (max-width: 560px) {
+      .docs .toc ul { columns: 1; }
+    }
   </style>
 </head>
 <body>
   <div class="crt docs">
     <div class="topbar">
-      <strong>NOTBOOK CONSOLE — PLAIN ENGLISH GUIDE</strong>
+      <h1>NOTBOOK CONSOLE — PLAIN ENGLISH GUIDE</h1>
       <a href="/">← Back to console</a>
     </div>
 
     <p class="lead">
-      This page explains the Deploy Console like you’re not a programmer.
-      Think of two separate apps on the internet (or your computer): the <b>Telegram bot</b>
-      (answers students) and this <b>console</b> (the control panel for books, settings, and hosting).
+      This page explains every part of the Deploy Console in everyday language.
+      You do <b>not</b> need to be a developer to use it.
     </p>
 
     <div class="box">
-      <b>Big idea</b><br />
-      The bot and the console are roommates, not the same person.
-      Each has its own set of keys (secrets). Putting keys on the bot does <b>not</b>
-      automatically give them to the console, and the other way around.
+      <b>Two apps, not one</b><br />
+      Think of roommates sharing a house:
+      <ul>
+        <li><b>Telegram bot</b> — talks to students, answers questions from your books.</li>
+        <li><b>This console</b> — your control panel: keys, book uploads, hosting buttons, health checks.</li>
+      </ul>
+      Each roommate has their own keychain (secrets). Putting keys on the bot does
+      <b>not</b> automatically give them to the console, and the reverse is also true.
+      On Render you usually have <b>two Web Services</b> — one for each.
     </div>
 
-    <h2>1. What is this console?</h2>
-    <p>
-      A website for you (the owner) to manage Notbook without typing scary commands all day.
-      You can check if things are OK, save passwords/keys, upload textbooks, talk to Render
-      (the host), and connect the console to the bot.
-    </p>
-    <p class="dim">Students never use this. Only you (or people you trust with the console password).</p>
+    <nav class="toc" aria-label="Table of contents">
+      <b>Jump to</b>
+      <ul>
+        <li><a href="#overview">What this is</a></li>
+        <li><a href="#top">Top bar &amp; tabs</a></li>
+        <li><a href="#status">STATUS</a></li>
+        <li><a href="#secrets">SECRETS</a></li>
+        <li><a href="#config">CONFIG</a></li>
+        <li><a href="#library">LIBRARY</a></li>
+        <li><a href="#link">LINK</a></li>
+        <li><a href="#render">RENDER</a></li>
+        <li><a href="#local">LOCAL</a></li>
+        <li><a href="#deploy">DEPLOY</a></li>
+        <li><a href="#artifacts">ARTIFACTS</a></li>
+        <li><a href="#how">How answers work</a></li>
+        <li><a href="#broken">“Why is it broken?”</a></li>
+        <li><a href="#safe">Safe habits</a></li>
+      </ul>
+    </nav>
 
-    <h2>2. STATUS tab</h2>
-    <p>A health checklist for <b>this</b> console and (when linked) the <b>live bot</b>.</p>
+    <h2 id="overview">1. What is this console?</h2>
+    <p>
+      A private website for the owner (you) to manage Notbook without living in a terminal all day.
+      Students never open this. Only people who know the console password (if you set one) should.
+    </p>
+    <p>
+      Typical day-to-day uses:
+    </p>
     <ul>
-      <li><b>TELEGRAM BOT ONLINE / OFFLINE</b> — Can we reach the bot’s public web address?
-        If free hosting put the bot to sleep, open the bot URL once to wake it, then refresh.</li>
-      <li><b>CONSOLE READY</b> — Does <b>this</b> console have Telegram + Gemini + Pinecone keys?
-        Needed for uploading books from the Library tab.</li>
-      <li><b>Secrets on console</b> — Keys stored on the console service (or your PC’s .env file).</li>
-      <li><b>Secrets on bot</b> — What we learn by asking the bot (needs link token + bot URL).</li>
-      <li><b>LOCAL PID</b> — Only if the bot is running on the same computer as the console.
-        On Render this is usually “no”, and that’s normal.</li>
+      <li>Check whether the live bot is <b>ONLINE</b>.</li>
+      <li>See which keys this console has vs the bot.</li>
+      <li>Upload a PDF textbook so it shows up under Telegram → Menu → Books.</li>
+      <li>Redeploy or read logs on Render when something looks stuck.</li>
+      <li>Link the two services so they can talk to each other safely.</li>
     </ul>
 
-    <h2>3. SECRETS tab</h2>
-    <p>Where you type the important passwords and API keys. On your computer they save into a file called <code>.env</code>. On Render you should also set them under the service’s <b>Environment</b> page so they survive restarts.</p>
+    <h2 id="top">2. The top of the screen</h2>
     <ul>
-      <li><b>TELEGRAM_BOT_TOKEN</b> — From BotFather. Lets the bot message people on Telegram.</li>
-      <li><b>GEMINI_API_KEY</b> — From Google. Brain for answers and for turning book text into searchable vectors.</li>
-      <li><b>PINECONE_API_KEY</b> — From Pinecone. The online “bookshelf database” of book chunks.</li>
-      <li><b>ADMIN_USER_IDS</b> — Your Telegram user number(s). Who’s allowed to upload books via Telegram.</li>
-      <li><b>CONSOLE_PASSWORD</b> — Your lock on this website so strangers can’t open it.</li>
-      <li><b>RENDER_API_KEY</b> — Optional. Lets the console press “deploy” buttons on Render for you.</li>
-      <li><b>INTERNAL_SERVICE_TOKEN</b> — A shared password only the bot and console know, so they trust each other.</li>
-      <li><b>BOT_BASE_URL</b> — Public link of the bot, like <code>https://something.onrender.com</code>.</li>
-      <li><b>CONSOLE_BASE_URL</b> — Public link of this console.</li>
-    </ul>
-    <p class="dim">Never put real keys into code or public chat. If a key leaks, make a new one.</p>
-
-    <h2>4. CONFIG tab</h2>
-    <p>
-      Knobs for how the AI answers and how search works (model name, how many facts, book search settings, etc.).
-      These write into <code>config.yaml</code>. You usually leave them alone unless you know what you want to tweak.
-      Changing embeddings dimension means you must re-upload books.
-    </p>
-
-    <h2>5. LIBRARY tab</h2>
-    <p>Upload a PDF textbook into Pinecone so the bot can study from it.</p>
-    <ul>
-      <li><b>PDF file</b> — The book file on your computer.</li>
-      <li><b>Display name</b> — Friendly name people see in Telegram (Menu → Books), e.g. “Rakel”.</li>
-      <li><b>Upload progress</b> — Bar and percent while the system reads pages, cuts text into chunks, asks Gemini to embed, then stores in Pinecone.</li>
-      <li><b>Live logs</b> — Play-by-play text. “Namespace not found” on first upload of a book is normal (nothing to delete yet).</li>
-      <li><b>Indexed books</b> — List of books already in the database.</li>
-    </ul>
-    <p>
-      After upload, in Telegram: open the bot → <b>Menu → Books → pick the book</b> → ask questions.
-    </p>
-
-    <h2>6. LINK tab</h2>
-    <p>Connects console and bot when both are online (especially both on Render).</p>
-    <ul>
-      <li><b>Save link</b> — Stores bot URL, console URL, and the shared token.</li>
-      <li><b>Ping / pull status / books / config</b> — Console asks the bot “are you up? what’s going on?”</li>
-      <li><b>Clear bot cache / refresh library</b> — Console tells the bot to forget temporary memory or re-read book list.</li>
-      <li><b>Sync secrets via Render API</b> — Pushes keys from this console’s env into the bot’s Render Environment and can redeploy (needs RENDER_API_KEY).</li>
-      <li><b>Events from bot</b> — Notes when the bot starts or finishes something, if webhooks work.</li>
+      <li><b>NOTBOOK DEPLOY CONSOLE</b> — brand title. The blinking block is just style.</li>
+      <li><b>Meta line</b> (top right) — quick summary like <kbd>BOT ONLINE · CONSOLE READY</kbd>
+        or what still needs fixing.</li>
+      <li><b>Tabs</b> — STATUS, SECRETS, CONFIG, LIBRARY, LINK, RENDER, LOCAL, DEPLOY, ARTIFACTS, and <b>DOCS</b> (this page).</li>
+      <li><b>Footer clock</b> — current time in UTC. Handy when comparing with Render logs.</li>
     </ul>
 
-    <h2>7. RENDER tab</h2>
-    <p>Talks to Render.com’s control API (needs <code>RENDER_API_KEY</code>).</p>
+    <!-- ========== STATUS ========== -->
+    <h2 id="status">3. STATUS tab — “is everything awake?”</h2>
+    <p>
+      A live health sheet. Hit <kbd>REFRESH</kbd> after you change keys or wake a sleeping free-tier bot.
+    </p>
+
+    <h3>What the big text block means</h3>
     <ul>
-      <li>List services, pick the bot, set as preferred.</li>
-      <li>Deploy latest code, or <b>clear cache + deploy</b> (full rebuild).</li>
-      <li>Show or pull environment variables, suspend/resume free-tier sleep.</li>
-      <li>View app / build logs.</li>
-      <li>SSH public key — only if you want shell access on paid plans; most day-to-day work uses the API key, not SSH.</li>
+      <li><b>PROJECT</b> — folder path where the code lives on this machine/service.</li>
+      <li><b>PYTHON</b> — which Python version is running the console.</li>
+      <li>
+        <b>TELEGRAM BOT ONLINE / OFFLINE</b> — live check, not a guess.
+        The console calls your bot’s public address at <code>/health</code>.
+        If that answers, the bot is treated as <b>ONLINE</b>.
+        On a laptop it can also notice a local bot process.
+        <span class="dim">Old versions only looked for a local process, so cloud bots always looked “stopped” even when Telegram worked. That’s fixed.</span>
+      </li>
+      <li><b>URL</b> — the bot address from <code>BOT_BASE_URL</code>. If this is empty, the console can’t ping the cloud bot.</li>
+      <li><b>CHECK</b> — how we decided:
+        <code>remote_health</code> (public ping),
+        <code>remote_linked</code> (ping + shared secret details),
+        <code>local_pid</code> (process on this PC),
+        or <code>none</code> (no URL and no local process).</li>
+      <li><b>LOCAL PID</b> — “is the bot process on this same computer?” On Render this is usually <b>no</b>, and that’s normal. Your bot is a different service.</li>
+      <li>
+        <b>CONSOLE READY YES/NO</b> — does <b>this</b> console have Telegram + Gemini + Pinecone keys?
+        You need YES to upload books from the LIBRARY tab.
+        The bot can be happily answering students while the console still says NO — different keychains.
+      </li>
+      <li><b>SECRETS ON CONSOLE</b> — checklist for keys on this website’s Environment (or local <code>.env</code>).</li>
+      <li><b>SECRETS ON BOT</b> — what we learn by asking the bot (needs link token + working bot URL).</li>
+      <li><b>STACK</b> — AI model names, embedding size, Pinecone index name, reranker setting from config.</li>
     </ul>
 
-    <h2>8. LOCAL tab</h2>
+    <h3>Buttons</h3>
+    <ul>
+      <li><kbd>REFRESH</kbd> — re-run all checks now.</li>
+      <li><kbd>GENERATE ARTIFACTS</kbd> — same idea as the ARTIFACTS tab: write helper deploy files to disk.</li>
+    </ul>
+
+    <div class="box warn">
+      <b>Bot shows OFFLINE but Telegram still works?</b><br />
+      Free hosting often puts the bot to sleep. Open the bot’s public URL once in a browser
+      (the same URL as <code>BOT_BASE_URL</code>), wait ~30 seconds, then hit REFRESH.
+      Also double-check <code>BOT_BASE_URL</code> has no trailing slash and points at the <b>bot</b> service, not the console.
+    </div>
+
+    <!-- ========== SECRETS ========== -->
+    <h2 id="secrets">4. SECRETS tab — passwords and API keys</h2>
     <p>
-      Start/stop a bot process on the <b>same machine</b> as the console.
-      On Render, leave this alone — your bot is already a separate service.
-      Use this when developing on your laptop.
+      This is the keychain for <b>this console</b> when you run it on your computer
+      (saved into a file called <code>.env</code>).
+      On Render, also paste the same values under the service’s
+      <b>Environment</b> page so they survive restarts and redeploys.
     </p>
 
-    <h2>9. DEPLOY tab</h2>
-    <p>
-      Cheat sheets for hosting options (local, Docker, VPS, Render, etc.).
-      Reminder: the Telegram bot needs a <b>Web Service</b>, not a Static Site.
-      Static Site = brochure pages only; it cannot run the bot or this console’s Python server.
+    <h3>Each field</h3>
+    <ul>
+      <li><b>TELEGRAM_BOT_TOKEN</b> — from Telegram’s BotFather. Proves “I am this bot.” Without it, nothing can talk on Telegram.</li>
+      <li><b>GEMINI_API_KEY</b> — from Google AI. Powers answers and turning book text into searchable pieces.</li>
+      <li><b>GEMINI_API_KEYS</b> — optional. Several keys separated by commas if you want rotation/backup.</li>
+      <li><b>PINECONE_API_KEY</b> — from Pinecone. The online “bookshelf database” that stores book chunks.</li>
+      <li><b>ADMIN_USER_IDS</b> — your Telegram numeric user id(s). Who is allowed to admin-upload books in Telegram. Comma-separated if more than one person.</li>
+      <li><b>PORT</b> — network port the bot listens on (usually 8080 on hosts like Render; they often set this for you).</li>
+      <li><b>RENDER_API_KEY</b> — optional. Lets the RENDER tab control deploys/logs from here (create under Render → Account → API Keys).</li>
+      <li><b>RENDER_SERVICE_ID</b> — which Render service is the “preferred” one when you press deploy buttons. Usually filled from the RENDER tab via <kbd>SET AS PREFERRED</kbd>.</li>
+    </ul>
+    <p class="dim">
+      Link-related fields (<code>BOT_BASE_URL</code>, <code>CONSOLE_BASE_URL</code>, <code>INTERNAL_SERVICE_TOKEN</code>)
+      live on the <b>LINK</b> tab. Console password is set as Environment vars
+      <code>CONSOLE_PASSWORD</code> / optional <code>CONSOLE_USER</code> (default user name: admin).
     </p>
 
-    <h2>10. ARTIFACTS tab</h2>
+    <h3>Buttons</h3>
+    <ul>
+      <li><kbd>SAVE .ENV</kbd> — write the form into the local <code>.env</code> file.</li>
+      <li><kbd>REVEAL / RELOAD</kbd> — reload from disk and show values unmasked (careful on shared screens).</li>
+    </ul>
+
+    <!-- ========== CONFIG ========== -->
+    <h2 id="config">5. CONFIG tab — how the AI behaves</h2>
     <p>
-      Generates helper files (Docker compose, Render yaml, systemd unit, etc.) into a folder on the machine.
-      Handy if you host outside Render later.
+      These knobs write into <code>config.yaml</code>. Most people leave the defaults.
+      If something already works, don’t random-tweak mid-study-session.
     </p>
 
-    <h2>11. How the bot answers (super short)</h2>
+    <h3>LLM (the “writer”)</h3>
+    <ul>
+      <li><b>model_name</b> — which Gemini brain to use for answers.</li>
+      <li><b>temperature</b> — how creative vs strict. Lower = more boring and consistent (good for study).</li>
+      <li><b>max_output_tokens</b> — hard cap on how long a single AI reply can be.</li>
+    </ul>
+
+    <h3>EMBEDDINGS (turning text into searchable numbers)</h3>
+    <ul>
+      <li><b>provider / model / dimension</b> — how book chunks are encoded for Pinecone.
+        Changing dimension means old vectors no longer match — you’d re-upload books.</li>
+    </ul>
+
+    <h3>RERANKER (second pass on search results)</h3>
+    <ul>
+      <li><b>enabled</b> — on/off.</li>
+      <li><b>backend</b> — which tool re-orders the best chunks (<code>auto</code> is fine).</li>
+      <li><b>candidate_k / top_k</b> — how many chunks to consider, then how many to keep.</li>
+    </ul>
+
+    <h3>PINECONE / RAG (search settings)</h3>
+    <ul>
+      <li><b>index_name</b> — name of the Pinecone index (bookshelf warehouse).</li>
+      <li><b>dimension</b> — must match embeddings dimension.</li>
+      <li><b>top_k_dense</b> — how many vector matches to pull first.</li>
+      <li><b>hybrid_alpha</b> — balance between “meaning search” and “keyword search.”</li>
+      <li><b>router.max_namespaces</b> — when no book is selected, how many books to probe at once.</li>
+      <li><b>router.use_probe</b> — smart book picking on/off.</li>
+    </ul>
+
+    <h3>FAITHFULNESS (don’t invent medical claims)</h3>
+    <ul>
+      <li><b>enabled</b> — check answers against retrieved book text.</li>
+      <li><b>min_claim_score</b> — how strict the check is.</li>
+      <li><b>max_retries</b> — how many times to rewrite if a claim looks unsupported.</li>
+      <li><b>strict</b> — when true, prefer refusing/softening over shaky claims.</li>
+    </ul>
+
+    <h3>BOT / ADHD (message shape for real humans)</h3>
+    <ul>
+      <li><b>rate_limit_per_minute</b> — spam guard per user.</li>
+      <li><b>max_message_chars</b> — longest Telegram-style chunk before splitting.</li>
+      <li><b>max_facts</b> — how many bullet facts in a compact answer.</li>
+      <li><b>max_summary_chars</b> — short summary length cap.</li>
+    </ul>
+
+    <h3>Buttons</h3>
+    <ul>
+      <li><kbd>SAVE CONFIG</kbd> — write changes to <code>config.yaml</code>.</li>
+      <li><kbd>RELOAD</kbd> — discard form edits and re-read the file.</li>
+    </ul>
+    <p class="dim">
+      On Render, config changes on the console service don’t magically rewrite the bot service’s file
+      unless you deploy the same repo change or sync intentionally. Prefer changing config in git and redeploying both if they share the repo.
+    </p>
+
+    <!-- ========== LIBRARY ========== -->
+    <h2 id="library">6. LIBRARY tab — put textbooks into the bot</h2>
+    <p>
+      This is how a PDF becomes something students can pick under <b>Menu → Books</b> in Telegram.
+    </p>
+
+    <h3>Fields</h3>
+    <ul>
+      <li><b>PDF file</b> — the textbook file from your computer.</li>
+      <li><b>Display name</b> — friendly label students see (example: “Rakel”, “Murtagh”).
+        Behind the scenes the storage “shelf” is named like <code>global|That Name</code>.</li>
+    </ul>
+
+    <h3>Buttons</h3>
+    <ul>
+      <li><kbd>UPLOAD TO PINECONE</kbd> — start the pipeline: read PDF → split into chunks → embed with Gemini → store in Pinecone.
+        Needs Gemini + Pinecone keys on <b>this console</b>.</li>
+      <li><kbd>REFRESH BOOKS</kbd> — re-list books already indexed (from this console’s view of the library).</li>
+    </ul>
+
+    <h3>Progress area</h3>
+    <ul>
+      <li><b>Phase</b> — plain words for the current step (reading, embedding, upserting, done, error…).</li>
+      <li><b>Percent bar</b> — rough progress so you know it isn’t frozen.</li>
+      <li><b>Chunk counts</b> — how many pieces processed vs total.</li>
+      <li><b>job id</b> — internal job number (useful if you open logs or ask for support).</li>
+      <li><b>LIVE LOGS</b> — play-by-play. Heartbeats mean “still working.”</li>
+      <li><b>INDEXED BOOKS</b> — list of display names already in the system.</li>
+    </ul>
+
+    <div class="box">
+      <b>First upload of a new book name</b><br />
+      You may see something like “namespace not found” while clearing the old shelf.
+      That’s normal the first time — there was nothing to delete yet. Upload continues.
+    </div>
+
+    <p>
+      After a successful upload: open Telegram → your bot → <b>Menu → Books → pick the book</b> → ask questions.
+      Re-uploading the same display name replaces that book’s content.
+    </p>
+
+    <!-- ========== LINK ========== -->
+    <h2 id="link">7. LINK tab — make bot and console friends</h2>
+    <p>
+      When both run on the internet (two Render services), they need each other’s public URL
+      and a shared secret so random strangers can’t call the private control endpoints.
+    </p>
+
+    <h3>Fields</h3>
+    <ul>
+      <li><b>BOT_BASE_URL</b> — public URL of the <b>bot</b> service, e.g. <code>https://notbook-bot.onrender.com</code> (no slash at the end).</li>
+      <li><b>CONSOLE_BASE_URL</b> — public URL of <b>this</b> console.</li>
+      <li><b>INTERNAL_SERVICE_TOKEN</b> — a long random password you invent once. Put the <b>same</b> value on both services’ Environment.</li>
+    </ul>
+
+    <h3>Buttons</h3>
+    <ul>
+      <li><kbd>SAVE LINK</kbd> — store those three values for the console.</li>
+      <li><kbd>LINK STATUS</kbd> — show what the console currently thinks is configured.</li>
+      <li><kbd>PING BOT</kbd> — simple “are you there?”</li>
+      <li><kbd>PULL BOT STATUS</kbd> — ask the bot for a richer health + secrets checklist.</li>
+      <li><kbd>PULL BOT BOOKS</kbd> — ask the bot which books it currently sees.</li>
+      <li><kbd>PULL BOT CONFIG</kbd> — ask the bot for its running config snapshot.</li>
+      <li><kbd>PUSH: CLEAR BOT CACHE</kbd> — tell the bot to drop temporary memory (after big library changes).</li>
+      <li><kbd>PUSH: REFRESH LIBRARY</kbd> — tell the bot to re-read the book list.</li>
+      <li><kbd>SYNC SECRETS VIA RENDER API</kbd> — copy keys from this console into the bot’s Render Environment (needs <code>RENDER_API_KEY</code>). Powerful; double-check you’re targeting the right service.</li>
+    </ul>
+
+    <h3>Output boxes</h3>
+    <ul>
+      <li><b>LINK / BOT RESPONSE</b> — raw result of the last ping/pull/push.</li>
+      <li><b>EVENTS FROM BOT</b> — notes the bot posted back (for example after start/upload), if webhooks are set up.</li>
+    </ul>
+
+    <!-- ========== RENDER ========== -->
+    <h2 id="render">8. RENDER tab — control your host from here</h2>
+    <p>
+      Render is the cloud host. This tab uses <code>RENDER_API_KEY</code> so you don’t have to click around the Render website for every small job.
+      If the API key is missing, these buttons will complain — set it under SECRETS / Environment first.
+    </p>
+
+    <h3>SSH public key (optional)</h3>
+    <ul>
+      <li><kbd>SHOW SSH KEY</kbd> — shows a public key you can paste into Render Account → SSH Public Keys (shell access on plans that support it).</li>
+      <li><kbd>COPY PUBLIC KEY</kbd> — copies that text for you.</li>
+    </ul>
+    <p class="dim">Day-to-day deploy work does <b>not</b> need SSH. The API key is enough for deploys, env, and logs.</p>
+
+    <h3>Service controls</h3>
+    <ul>
+      <li><kbd>LIST SERVICES</kbd> — load all services on your Render account into the dropdown.</li>
+      <li><b>Active service</b> dropdown — pick bot or console service carefully before dangerous buttons.</li>
+      <li><kbd>REFRESH SELECTED</kbd> — re-fetch details for the selected service.</li>
+      <li><kbd>SET AS PREFERRED</kbd> — remember this service id as the default for deploy/env actions.</li>
+      <li><kbd>DEPLOY LATEST</kbd> — start a normal deploy of the latest code from the connected git repo.</li>
+      <li><kbd>CLEAR CACHE + DEPLOY LATEST</kbd> — full rebuild (slower; use when a normal deploy still runs old weirdness).</li>
+      <li><kbd>SYNC LOCAL SECRETS → RENDER</kbd> — push this console’s known secrets into the selected service’s Environment on Render.</li>
+      <li><kbd>ENV (MASKED)</kbd> — show env var <b>names</b> (values hidden) for a sanity check.</li>
+      <li><kbd>PULL FULL ENV</kbd> — pull actual values (sensitive — don’t share screenshots).</li>
+      <li><kbd>SUSPEND</kbd> — pause the service (saves free-tier hours; bot goes down).</li>
+      <li><kbd>RESUME</kbd> — wake a suspended service.</li>
+    </ul>
+
+    <h3>Logs</h3>
+    <ul>
+      <li><kbd>APP LOGS</kbd> — what the running app is printing (errors, heartbeats).</li>
+      <li><kbd>BUILD LOGS</kbd> — what happened while installing dependencies / building the image.</li>
+      <li><kbd>REQUEST LOGS</kbd> — incoming HTTP requests (if available).</li>
+      <li><kbd>AUTO-REFRESH ON/OFF</kbd> — keep reloading logs every few seconds while you watch a deploy.</li>
+    </ul>
+
+    <div class="box warn">
+      <b>Pick the right service before DEPLOY / SUSPEND / SYNC.</b><br />
+      Bot and console are different. Deploying the wrong one won’t fix the other.
+      Each service needs its own Environment keys.
+    </div>
+
+    <!-- ========== LOCAL ========== -->
+    <h2 id="local">9. LOCAL tab — run the bot on this computer</h2>
+    <p>
+      Only useful when the console is on your laptop/desktop and you want to start the bot
+      as a process next door. On Render, leave this alone — the bot is already a separate Web Service.
+    </p>
+    <ul>
+      <li><kbd>START BOT</kbd> — launch the bot process using local keys/config.</li>
+      <li><kbd>STOP BOT</kbd> — stop that local process.</li>
+      <li><kbd>TAIL LOG</kbd> — show recent local log lines.</li>
+    </ul>
+
+    <!-- ========== DEPLOY ========== -->
+    <h2 id="deploy">10. DEPLOY tab — hosting cheat sheets</h2>
+    <p>
+      Click a target name (LOCAL, DOCKER, VPS, RENDER, RAILWAY, HEROKU, FLY.IO, VERCEL)
+      to read a short guide for that style of hosting.
+    </p>
+    <ul>
+      <li><b>RENDER</b> — what you’re probably using: create a <b>Web Service</b>, Python, connect the git repo, set Environment vars.</li>
+      <li><b>VERCEL</b> is marked as a warning for a reason — it’s great for static frontends, not for a long-running Telegram bot process.</li>
+      <li><b>Static Site on Render</b> = brochure pages only. It cannot run this Python console or the bot. Always choose <b>Web Service</b>.</li>
+    </ul>
+    <p class="dim">Generate files from the ARTIFACTS tab before you try Docker / Fly / VPS recipes that expect those files.</p>
+
+    <!-- ========== ARTIFACTS ========== -->
+    <h2 id="artifacts">11. ARTIFACTS tab — helper files for hosting</h2>
+    <p>
+      Creates ready-made config snippets (Docker compose, Render blueprint, systemd unit, etc.)
+      into a folder on the machine. You usually only need this if you host outside the simple Render UI path.
+    </p>
+    <ul>
+      <li><kbd>GENERATE ALL</kbd> — write/update the helper files.</li>
+      <li><kbd>LIST</kbd> — show what files exist.</li>
+      <li>Click a file name in the list to preview it in the big text box.</li>
+    </ul>
+
+    <!-- ========== HOW ========== -->
+    <h2 id="how">12. How the bot answers (super short)</h2>
     <ol>
-      <li>You ask a question in Telegram.</li>
-      <li>The bot searches book chunks in Pinecone (optionally only the book you selected).</li>
-      <li>Gemini writes a short, structured answer from those chunks only.</li>
-      <li>You can page through details, quiz, save bookmarks, make flashcards.</li>
+      <li>Student asks a question in Telegram (optionally after picking a book).</li>
+      <li>The bot searches matching chunks in Pinecone (vector + keywords).</li>
+      <li>Gemini writes a short, structured answer from those chunks.</li>
+      <li>Faithfulness checks try to keep claims tied to the book text.</li>
+      <li>Student can page details, quiz, bookmark, make flashcards — study tools, not a doctor.</li>
     </ol>
 
-    <h2>12. Common “why is it broken?” moments</h2>
+    <!-- ========== BROKEN ========== -->
+    <h2 id="broken">13. Common “why is it broken?” moments</h2>
     <ul>
-      <li><b>Console says missing secrets but bot works</b> — Keys are only on the bot service. Copy them to the console Environment too (for Library upload).</li>
-      <li><b>Bot shows offline here but Telegram works</b> — Free tier may be waking up; open the bot URL, wait, refresh Status. Or BOT_BASE_URL is wrong.</li>
-      <li><b>Upload stuck / fails</b> — Need Gemini + Pinecone on the console; big PDFs take time; first module load can look frozen (watch live logs / heartbeats).</li>
-      <li><b>Namespace not found while clearing</b> — First time that book name is used. Harmless.</li>
-      <li><b>API key leaked</b> — Make new keys, put only in Environment / .env, never in code.</li>
-      <li><b>Build failed on pydantic / Python 3.14</b> — Use Python 3.11 (runtime.txt already pins this).</li>
+      <li>
+        <b>Console says missing secrets but bot works in Telegram</b> —
+        Keys live only on the bot service. Copy Telegram + Gemini + Pinecone onto the
+        <b>console</b> Environment too if you want LIBRARY uploads from the console.
+      </li>
+      <li>
+        <b>STATUS says BOT OFFLINE but Telegram still replies</b> —
+        Free tier may be cold-starting; open the bot URL once, wait, refresh.
+        Or <code>BOT_BASE_URL</code> is wrong / empty on the console.
+        STATUS no longer depends only on a local process id.
+      </li>
+      <li>
+        <b>Upload stuck near the start</b> —
+        Console needs Gemini + Pinecone. Big PDFs take minutes. Watch LIVE LOGS / heartbeats.
+        Prefer uploading huge books from a PC if cloud request timeouts bite.
+      </li>
+      <li>
+        <b>“Namespace not found” while clearing</b> —
+        First time that book name is used. Harmless.
+      </li>
+      <li>
+        <b>Build failed mentioning pydantic / Python 3.14</b> —
+        Use Python <b>3.11</b> on Render (<code>runtime.txt</code> in the repo pins this).
+      </li>
+      <li>
+        <b>API key leaked in chat or git</b> —
+        Revoke it, create a new one, put it only in Environment / <code>.env</code>, never in code.
+      </li>
+      <li>
+        <b>Two services, only one redeployed</b> —
+        Code or keys on the console don’t auto-appear on the bot. Deploy/env each service you care about.
+      </li>
+      <li>
+        <b>Console asks for a password in the browser</b> —
+        You (or someone) set <code>CONSOLE_PASSWORD</code>. Default username is usually <code>admin</code>.
+      </li>
     </ul>
 
-    <h2>13. Safe habits</h2>
+    <!-- ========== SAFE ========== -->
+    <h2 id="safe">14. Safe habits</h2>
     <ul>
       <li>Always set <b>CONSOLE_PASSWORD</b> if the console is on the public internet.</li>
-      <li>Don’t screenshot or paste real keys into chats.</li>
-      <li>After changing keys, update both services if both need them, then redeploy if needed.</li>
-      <li>Prefer uploading huge textbooks from a PC (console on localhost) if cloud uploads time out.</li>
+      <li>Never paste real keys into Discord, Telegram groups, GitHub issues, or screenshots of SECRETS.</li>
+      <li>After rotating a key, update every service that needs it, then redeploy if the process already started with the old key.</li>
+      <li>Treat <kbd>SUSPEND</kbd>, <kbd>CLEAR CACHE + DEPLOY</kbd>, and <kbd>SYNC SECRETS</kbd> as “measure twice” buttons.</li>
+      <li>Notbook is a study library interface, not a doctor. Answers come from your uploaded books.</li>
     </ul>
 
     <p class="dim" style="margin-top:2rem">
-      Notbook is a study library interface, not a doctor. Answers come from your uploaded books.
+      Tip: keep this DOCS tab open in a second browser window the first time you walk through STATUS → SECRETS → LINK → LIBRARY.
     </p>
     <p><a href="/">← Back to console</a></p>
   </div>

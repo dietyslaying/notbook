@@ -578,59 +578,84 @@ def api_status():
         "on_render": bool(os.getenv("RENDER")),
     }
 
-    # Live bot probe (Render/other host) — NOT the local pid
+    # Live bot probe — local PID and/or remote URL (OR logic: either counts as ONLINE)
     bot_live: dict[str, Any] = {
         "configured_url": link["bot_base_url"],
         "reachable": False,
         "running": False,
         "http_status": None,
         "health_text": "",
-        "mode": "unknown",  # local_pid | remote_health | remote_linked | none
+        "mode": "unknown",  # local_pid | remote_health | remote_linked | local+remote | none
         "detail": "",
         "uptime_s": None,
         "books_count": None,
         "secrets": None,
         "error": None,
+        "local_ok": False,
+        "remote_ok": False,
     }
 
-    # 1) Local process (only meaningful on your PC)
+    detail_parts: list[str] = []
+
+    # 1) Local process (only meaningful when console + bot share a machine)
     if pid is not None:
-        bot_live["mode"] = "local_pid"
+        bot_live["local_ok"] = True
         bot_live["running"] = True
         bot_live["reachable"] = True
-        bot_live["detail"] = f"Local python process pid={pid}"
+        bot_live["mode"] = "local_pid"
+        detail_parts.append(f"Local process pid={pid}")
 
     # 2) Public health check — no auth (works even without link token)
+    #    Prefer this on Render: local PID is almost always empty there.
     if link["bot_base_url"]:
-        bot_live["mode"] = "remote_health"
-        try:
-            import urllib.request
+        import urllib.error
+        import urllib.request
 
-            req = urllib.request.Request(
-                link["bot_base_url"] + "/health",
-                headers={"User-Agent": "Notbook-Console/1.0"},
-                method="GET",
-            )
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
-                bot_live["http_status"] = resp.status
-                bot_live["health_text"] = body[:200]
-                bot_live["reachable"] = 200 <= resp.status < 300
-                bot_live["running"] = bot_live["reachable"]
-                bot_live["detail"] = (
-                    f"Remote health OK ({resp.status}) at {link['bot_base_url']}"
-                    if bot_live["running"]
-                    else f"Remote health bad status {resp.status}"
+        health_url = link["bot_base_url"].rstrip("/") + "/health"
+        last_err = ""
+        # Free-tier cold start: try twice with a longer timeout
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(
+                    health_url,
+                    headers={"User-Agent": "Notbook-Console/1.0"},
+                    method="GET",
                 )
-        except Exception as e:
-            bot_live["error"] = str(e)[:240]
-            bot_live["running"] = False
-            bot_live["reachable"] = False
-            bot_live["detail"] = (
-                f"Cannot reach bot URL (sleeping free tier? wrong URL?): {bot_live['error']}"
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    bot_live["http_status"] = resp.status
+                    bot_live["health_text"] = body[:200]
+                    if 200 <= resp.status < 300:
+                        bot_live["remote_ok"] = True
+                        bot_live["running"] = True
+                        bot_live["reachable"] = True
+                        detail_parts.append(
+                            f"Remote health OK ({resp.status}) {link['bot_base_url']}"
+                        )
+                        last_err = ""
+                        break
+                    last_err = f"bad HTTP {resp.status}"
+            except Exception as e:
+                last_err = str(e)[:200]
+                # brief pause before retry (wake free tier)
+                if attempt == 0:
+                    time.sleep(1.5)
+        if not bot_live["remote_ok"]:
+            bot_live["error"] = last_err or "unreachable"
+            if not bot_live["local_ok"]:
+                bot_live["running"] = False
+                bot_live["reachable"] = False
+            detail_parts.append(
+                f"Remote health failed (sleeping free tier? wrong BOT_BASE_URL?): "
+                f"{bot_live['error']}"
             )
+        if bot_live["remote_ok"] and bot_live["local_ok"]:
+            bot_live["mode"] = "local+remote"
+        elif bot_live["remote_ok"]:
+            bot_live["mode"] = "remote_health"
+        # else keep local_pid if local_ok
 
-    # 3) Linked internal status (secrets + richer info)
+    # 3) Linked internal status (secrets + richer info) — never demotes a good health check
     bot_secrets = None
     bot_pull_error = None
     if link["bot_base_url"] and link["token_set"]:
@@ -646,34 +671,40 @@ def api_status():
             data = bot_request("GET", "/internal/status", timeout=25)
             bot_secrets = (data or {}).get("secrets")
             bot_live["secrets"] = bot_secrets
-            bot_live["mode"] = "remote_linked"
             bot_live["uptime_s"] = (data or {}).get("uptime_s")
             bot_live["books_count"] = (data or {}).get("books_count")
             if (data or {}).get("ok"):
+                bot_live["remote_ok"] = True
                 bot_live["running"] = True
                 bot_live["reachable"] = True
-                bot_live["detail"] = (
+                bot_live["mode"] = "remote_linked"
+                detail_parts = [
                     f"Linked OK · uptime {bot_live['uptime_s']}s"
                     + (
                         f" · books={bot_live['books_count']}"
                         if bot_live["books_count"] is not None
                         else ""
                     )
-                )
+                ]
+                if bot_live["local_ok"]:
+                    detail_parts.append(f"also local pid={pid}")
+                    bot_live["mode"] = "local+remote"
         except Exception as e:
             bot_pull_error = str(e)[:200]
-            # Don't override a successful /health with link failure
             if not bot_live["running"]:
                 bot_live["error"] = bot_pull_error
             else:
-                bot_live["detail"] += f" · link details failed: {bot_pull_error}"
+                detail_parts.append(f"link details failed: {bot_pull_error}")
 
     if not link["bot_base_url"] and pid is None:
         bot_live["mode"] = "none"
-        bot_live["detail"] = (
+        detail_parts = [
             "No BOT_BASE_URL set and no local bot process. "
-            "On Render, set BOT_BASE_URL to your bot service URL."
-        )
+            "On Render console: Environment → BOT_BASE_URL = your bot service URL "
+            "(https://….onrender.com)."
+        ]
+
+    bot_live["detail"] = " · ".join(detail_parts) if detail_parts else "unknown"
 
     return jsonify(
         {

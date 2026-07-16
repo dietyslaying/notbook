@@ -50,14 +50,22 @@ async function refreshStatus() {
   const botLine = bl.running
     ? `ONLINE  ·  ${bl.detail || "reachable"}`
     : `OFFLINE / UNREACHABLE  ·  ${bl.detail || bl.error || "not responding"}`;
+  const howBits = [];
+  if (bl.local_ok) howBits.push("local process");
+  if (bl.remote_ok) howBits.push("remote /health");
+  const howLine = howBits.length
+    ? howBits.join(" + ")
+    : bl.mode === "none"
+      ? "no check configured"
+      : "no live signal yet";
   const lines = [
     `PROJECT   ${s.project_root}`,
     `PYTHON    ${s.python}  (${s.platform})`,
     ``,
     `TELEGRAM BOT  ${botLine}`,
-    `  URL         ${bl.configured_url || "— (set BOT_BASE_URL)"}`,
-    `  CHECK       ${bl.mode || "—"}`,
-    `  LOCAL PID   ${s.local_bot_process ? "yes (" + s.bot_pid + ")" : "no (normal on cloud)"}`,
+    `  URL         ${bl.configured_url || "— (set BOT_BASE_URL on console Environment / LINK tab)"}`,
+    `  CHECK       ${bl.mode || "—"}  (${howLine})`,
+    `  LOCAL PID   ${s.local_bot_process ? "yes (" + s.bot_pid + ")" : "no (normal on cloud — bot is a separate service)"}`,
     ``,
     `CONSOLE READY  ${s.ready ? "YES — can upload books / use tools" : "NO — add keys on THIS console service"}`,
     ``,
@@ -81,10 +89,10 @@ async function refreshStatus() {
           `  LINK TOK   ${bs.internal_token ? "[OK]" : "[MISSING]"}`,
         ].join("\n")
       : s.bot_pull_error
-        ? `  health: ${bl.running ? "up" : "down"} · details: ${s.bot_pull_error}`
+        ? `  health: ${bl.running ? "UP" : "down"} · details: ${s.bot_pull_error}`
         : bl.running
-          ? `  health: UP (set INTERNAL_SERVICE_TOKEN on both to see key checklist)`
-          : `  (bot not reachable — free tier may be asleep; open bot URL once)`,
+          ? `  health: UP (set same INTERNAL_SERVICE_TOKEN on bot + console to see key checklist)`
+          : `  (bot not reachable — free tier may be asleep; open bot URL once, wait, REFRESH)`,
     ``,
     `STACK (config.yaml on console)`,
     `  LLM        ${s.llm_model || "—"}`,
