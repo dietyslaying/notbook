@@ -1511,14 +1511,29 @@ def api_library_upload():
 
 @app.get("/api/library/upload/<job_id>")
 def api_library_upload_status(job_id: str):
-    since = int(request.args.get("since") or 0)
+    """Progress poll — always JSON (never empty body). Jobs are in-process memory."""
+    try:
+        since = int(request.args.get("since") or 0)
+    except (TypeError, ValueError):
+        since = 0
     with _upload_lock:
         job = _upload_jobs.get(job_id)
         if not job:
-            return jsonify({"ok": False, "error": "unknown job_id"}), 404
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "unknown job_id (service restarted? or different worker)",
+                        "job_id": job_id,
+                    }
+                ),
+                404,
+            )
         snap = _job_snapshot(job, since=max(0, since))
     snap["ok"] = True
-    return jsonify(snap)
+    resp = jsonify(snap)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # ---------------------------------------------------------------------------

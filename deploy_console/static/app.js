@@ -245,11 +245,32 @@ function resetLibProgress() {
 
 async function pollLibJob(jobId) {
   const r = await fetch(
-    `/api/library/upload/${encodeURIComponent(jobId)}?since=${_libLogOffset}`
+    `/api/library/upload/${encodeURIComponent(jobId)}?since=${_libLogOffset}`,
+    { cache: "no-store", headers: { Accept: "application/json" } }
   );
-  const data = await r.json();
+  const raw = await r.text();
+  let data = null;
+  if (raw && raw.trim()) {
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      // Empty/HTML/proxy blip — not fatal while job still runs server-side
+      const err = new Error(
+        `poll non-JSON (${r.status}): ${raw.slice(0, 80) || "(empty body)"}`
+      );
+      err.transient = true;
+      throw err;
+    }
+  } else {
+    const err = new Error(`poll empty body (${r.status})`);
+    err.transient = true;
+    throw err;
+  }
   if (!r.ok || data.ok === false) {
-    throw new Error(data.error || r.statusText);
+    const err = new Error(data.error || r.statusText || "poll failed");
+    // 404 after restart is permanent; 5xx / auth hiccups are retryable
+    err.transient = r.status >= 500 || r.status === 0 || r.status === 429;
+    throw err;
   }
   setLibProgress(data);
   if (data.logs && data.logs.length) {
@@ -327,18 +348,28 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
 
     let stallTicks = 0;
     let lastLogTotal = 0;
+    let pollFails = 0;
+    let pollBusy = false;
     _libPollTimer = setInterval(async () => {
+      if (pollBusy) return; // don't stack polls during slow/cold responses
+      pollBusy = true;
       try {
         const job = await pollLibJob(jobId);
+        pollFails = 0;
         if ((job.log_total || 0) > lastLogTotal) {
           lastLogTotal = job.log_total || 0;
           stallTicks = 0;
         } else if (job.status === "running" || job.status === "queued") {
           stallTicks += 1;
-          // ~45s with no new logs
+          // ~45s with no new logs (75 * 600ms)
           if (stallTicks === 75) {
             appendLibLogs([
-              "[ui] Still running — large PDFs / first Gemini import can take several minutes…",
+              "[ui] Still running — large PDFs + free-tier embeds can take a long time (13k+ chunks).",
+            ]);
+          }
+          if (stallTicks === 200) {
+            appendLibLogs([
+              "[ui] Progress bar may sit near 30% until embed batches finish — watch live logs / heartbeats.",
             ]);
           }
         }
@@ -362,13 +393,46 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
           stopLibPoll();
           if (btn) btn.disabled = false;
           setMsg("#lib-msg", "FAILED: " + (job.error || job.message), false);
+        } else {
+          setMsg(
+            "#lib-msg",
+            `job ${jobId} ${job.status || "running"} — ${Number(job.pct || 0).toFixed(1)}% · live logs below`
+          );
         }
       } catch (e) {
-        stopLibPoll();
-        if (btn) btn.disabled = false;
-        setMsg("#lib-msg", String(e), false);
+        pollFails += 1;
+        const transient = e && e.transient;
+        appendLibLogs([
+          `[ui] poll hiccup #${pollFails}${transient ? " (will retry)" : ""}: ${e}`,
+        ]);
+        // Only abort after many hard failures; transient empty JSON is common on free hosts
+        if (!transient && pollFails >= 3) {
+          stopLibPoll();
+          if (btn) btn.disabled = false;
+          setMsg(
+            "#lib-msg",
+            String(e) +
+              "\n(If the job was still embedding, hard-refresh and check Render logs — upload may have continued server-side.)",
+            false
+          );
+        } else if (pollFails >= 40) {
+          stopLibPoll();
+          if (btn) btn.disabled = false;
+          setMsg(
+            "#lib-msg",
+            "Lost contact with progress API after many retries. Job may still be running on the server — check Render logs, don’t re-upload the same book yet.",
+            false
+          );
+        } else {
+          setMsg(
+            "#lib-msg",
+            `job ${jobId} still running — brief poll glitch (${pollFails}), retrying…`
+          );
+        }
+      } finally {
+        pollBusy = false;
       }
-    }, 600);
+    }, 800);
   } catch (e) {
     stopLibPoll();
     if (btn) btn.disabled = false;
