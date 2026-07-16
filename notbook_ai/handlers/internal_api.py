@@ -77,6 +77,7 @@ async def handle_status(request: web.Request) -> web.Response:
             "secrets": {
                 "telegram": bool(config.telegram_token),
                 "gemini": bool(config.gemini_api_keys),
+                "gemini_key_count": len(config.gemini_api_keys or []),
                 "pinecone": bool(config.pinecone_api_key),
                 "internal_token": token_configured(),
             },

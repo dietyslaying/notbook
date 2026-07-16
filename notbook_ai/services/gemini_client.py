@@ -1,16 +1,15 @@
-"""Google Gen AI SDK client (google.genai) — replaces deprecated google.generativeai."""
+"""Google Gen AI SDK client (google.genai) — rotates keys on 429/quota."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from typing import Optional
 
-from google import genai
 from google.genai import types
 
 from config import config
+from services.gemini_key_pool import gemini_key_pool, is_quota_or_rate
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +23,6 @@ class GeminiClient:
         self.top_k = int(llm.get("top_k", 32))
         self.max_output_tokens = int(llm.get("max_output_tokens", 4096))
         self._lock = asyncio.Lock()
-        self._clients: dict[str, genai.Client] = {}
-
-    def _client_for(self, api_key: str) -> genai.Client:
-        if api_key not in self._clients:
-            self._clients[api_key] = genai.Client(api_key=api_key)
-        return self._clients[api_key]
-
-    def _pick_key(self) -> str:
-        keys = config.gemini_api_keys
-        if not keys:
-            raise RuntimeError("No Gemini API keys configured")
-        return random.choice(keys)
 
     def _gen_config(self, *, json_mode: bool = True) -> types.GenerateContentConfig:
         kwargs: dict = {
@@ -55,31 +42,59 @@ class GeminiClient:
         json_mode: bool = True,
         model: Optional[str] = None,
     ) -> str:
-        api_key = self._pick_key()
-        client = self._client_for(api_key)
         model_name = model or self.model_name
         cfg = self._gen_config(json_mode=json_mode)
-
-        def _call() -> str:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=cfg,
-            )
-            text = getattr(response, "text", None) or ""
-            if text:
-                return text
-            # Fallback walk candidates
-            try:
-                cands = response.candidates or []
-                if cands and cands[0].content and cands[0].content.parts:
-                    return cands[0].content.parts[0].text or ""
-            except Exception:
-                pass
-            return ""
+        n_keys = max(1, gemini_key_pool.key_count())
+        attempts = max(4, n_keys * 2)
+        last_err: Exception | None = None
 
         async with self._lock:
-            return await asyncio.to_thread(_call)
+            for attempt in range(attempts):
+                api_key, client = gemini_key_pool.acquire()
+
+                def _call() -> str:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=cfg,
+                    )
+                    text = getattr(response, "text", None) or ""
+                    if text:
+                        return text
+                    try:
+                        cands = response.candidates or []
+                        if cands and cands[0].content and cands[0].content.parts:
+                            return cands[0].content.parts[0].text or ""
+                    except Exception:
+                        pass
+                    return ""
+
+                try:
+                    text = await asyncio.to_thread(_call)
+                    gemini_key_pool.mark_ok(api_key)
+                    return text
+                except Exception as e:
+                    last_err = e
+                    cool = gemini_key_pool.mark_error(api_key, e)
+                    err = str(e)
+                    if is_quota_or_rate(err):
+                        logger.warning(
+                            "generate 429/quota (attempt %s/%s); rotating keys "
+                            "(cooldown %.0fs on failed key)",
+                            attempt + 1,
+                            attempts,
+                            cool,
+                        )
+                        if n_keys <= 1:
+                            await asyncio.sleep(min(cool, 15.0))
+                        continue
+                    if attempt + 1 >= attempts:
+                        break
+                    await asyncio.sleep(min(1.5 * (attempt + 1), 8.0))
+
+        raise RuntimeError(
+            f"Gemini generate failed after rotating keys: {last_err}"
+        ) from last_err
 
 
 gemini_client = GeminiClient()

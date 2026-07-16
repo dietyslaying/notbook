@@ -2,18 +2,21 @@
 
 Query and document paths use the correct task type / e5 prefix so the
 same model is used at ingest and retrieve time.
+
+Gemini path uses gemini_key_pool: rotate keys on 429/quota instead of
+sticking to one exhausted free-tier key.
 """
 
 from __future__ import annotations
 
 import logging
-import random
 import time
 from typing import Literal
 
 from pinecone import Pinecone
 
 from config import config
+from services.gemini_key_pool import gemini_key_pool, is_quota_or_rate
 
 logger = logging.getLogger(__name__)
 
@@ -37,29 +40,17 @@ class EmbeddingService:
         self.dimension = int(
             emb.get("dimension") or pc_cfg.get("dimension") or 768
         )
-        self.batch_size = int(emb.get("batch_size") or 32)
+        self.batch_size = int(emb.get("batch_size") or 24)
 
         # Pinecone path still needs the client for pinecone provider
         self._pc = Pinecone(api_key=config.pinecone_api_key)
-        self._gemini_clients: dict = {}
-
-    def _gemini_client(self):
-        from google import genai
-
-        keys = config.gemini_api_keys
-        if not keys:
-            raise RuntimeError("GEMINI_API_KEY required for Gemini embeddings")
-        key = random.choice(keys)
-        if key not in self._gemini_clients:
-            self._gemini_clients[key] = genai.Client(api_key=key)
-        return self._gemini_clients[key]
 
     def embed_texts(
         self,
         texts: list[str],
         *,
         task: TaskKind = "document",
-        max_retries: int = 5,
+        max_retries: int = 8,
     ) -> list[list[float]]:
         if not texts:
             return []
@@ -74,6 +65,64 @@ class EmbeddingService:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self.embed_texts(texts, task="document")
 
+    def _embed_one_batch(
+        self,
+        client,
+        batch: list[str],
+        *,
+        task_type: str,
+        allow_single_fallback: bool,
+    ) -> list[list[float]]:
+        """Embed one batch; optionally fall back to per-item (never on 429)."""
+        from google.genai import types
+
+        try:
+            result = client.models.embed_content(
+                model=self.model,
+                contents=batch,
+                config=types.EmbedContentConfig(
+                    task_type=task_type,
+                    output_dimensionality=self.dimension,
+                ),
+            )
+            embeddings = getattr(result, "embeddings", None) or []
+            if len(embeddings) == len(batch):
+                return [
+                    list(getattr(emb, "values", None) or []) for emb in embeddings
+                ]
+            raise RuntimeError(
+                f"Batch embed size mismatch: got {len(embeddings)} want {len(batch)}"
+            )
+        except Exception as e:
+            err = str(e)
+            # Never explode into N single calls when rate-limited — that burns quota
+            if is_quota_or_rate(err) or not allow_single_fallback:
+                raise
+            # Non-quota batch API failure → try one-by-one with SAME client once
+            logger.warning(
+                "Gemini batch embed failed (non-quota), trying per-item: %s",
+                err[:160],
+            )
+            chunk_vecs: list[list[float]] = []
+            for text in batch:
+                result = client.models.embed_content(
+                    model=self.model,
+                    contents=text,
+                    config=types.EmbedContentConfig(
+                        task_type=task_type,
+                        output_dimensionality=self.dimension,
+                    ),
+                )
+                emb = None
+                if getattr(result, "embeddings", None):
+                    emb = result.embeddings[0]
+                elif getattr(result, "embedding", None):
+                    emb = result.embedding
+                if emb is None:
+                    raise RuntimeError("No embedding in Gemini response")
+                chunk_vecs.append(list(getattr(emb, "values", None) or []))
+            return chunk_vecs
+
     def _embed_gemini(
         self,
         texts: list[str],
@@ -81,71 +130,57 @@ class EmbeddingService:
         task: TaskKind,
         max_retries: int,
     ) -> list[list[float]]:
-        from google.genai import types
-
-        client = self._gemini_client()
         task_type = (
             "RETRIEVAL_QUERY" if task == "query" else "RETRIEVAL_DOCUMENT"
         )
+        n_keys = max(1, gemini_key_pool.key_count())
+        # Give every key a couple of tries across the pool
+        attempts_cap = max(max_retries, n_keys * 3)
         out: list[list[float]] = []
 
         for start in range(0, len(texts), self.batch_size):
             batch = texts[start : start + self.batch_size]
             last_err: Exception | None = None
-            for attempt in range(max_retries):
+            done = False
+
+            for attempt in range(attempts_cap):
+                api_key, client = gemini_key_pool.acquire()
                 try:
-                    # Prefer batch embed; fall back to one-by-one if needed
-                    try:
-                        result = client.models.embed_content(
-                            model=self.model,
-                            contents=batch,
-                            config=types.EmbedContentConfig(
-                                task_type=task_type,
-                                output_dimensionality=self.dimension,
-                            ),
-                        )
-                        embeddings = getattr(result, "embeddings", None) or []
-                        if len(embeddings) == len(batch):
-                            for emb in embeddings:
-                                vals = list(getattr(emb, "values", None) or [])
-                                out.append(vals)
-                            break
-                    except Exception:
-                        # Per-item (safer for some embedding-2 builds)
-                        chunk_vecs: list[list[float]] = []
-                        for text in batch:
-                            result = client.models.embed_content(
-                                model=self.model,
-                                contents=text,
-                                config=types.EmbedContentConfig(
-                                    task_type=task_type,
-                                    output_dimensionality=self.dimension,
-                                ),
-                            )
-                            emb = None
-                            if getattr(result, "embeddings", None):
-                                emb = result.embeddings[0]
-                            elif getattr(result, "embedding", None):
-                                emb = result.embedding
-                            if emb is None:
-                                raise RuntimeError("No embedding in Gemini response")
-                            chunk_vecs.append(list(getattr(emb, "values", None) or []))
-                        out.extend(chunk_vecs)
-                        break
+                    vecs = self._embed_one_batch(
+                        client,
+                        batch,
+                        task_type=task_type,
+                        allow_single_fallback=True,
+                    )
+                    gemini_key_pool.mark_ok(api_key)
+                    out.extend(vecs)
+                    done = True
+                    break
                 except Exception as e:
                     last_err = e
                     err = str(e)
-                    if "429" in err or "RESOURCE_EXHAUSTED" in err or "quota" in err.lower():
-                        wait = 20 * (attempt + 1)
-                        logger.warning("Gemini embed rate limited, sleep %ss", wait)
-                        time.sleep(wait)
-                    else:
-                        if attempt + 1 >= max_retries:
-                            raise
-                        time.sleep(2 * (attempt + 1))
-            else:
-                if last_err:
-                    raise last_err
+                    cool = gemini_key_pool.mark_error(api_key, e)
+                    if is_quota_or_rate(err):
+                        # Rotate immediately — only pause hard if a single key exists
+                        logger.warning(
+                            "Embed 429/quota on key (attempt %s/%s); "
+                            "rotating to next key (cooldown %.0fs on this one)",
+                            attempt + 1,
+                            attempts_cap,
+                            cool,
+                        )
+                        if n_keys <= 1:
+                            time.sleep(min(cool, 15.0))
+                        continue
+                    # non-quota: short backoff then try other keys
+                    time.sleep(min(2.0 * (attempt + 1), 10.0))
+
+            if not done:
+                st = gemini_key_pool.status()
+                raise RuntimeError(
+                    f"Gemini embed failed after rotating across {st['total']} key(s) "
+                    f"({st['ready']} ready). Last error: {last_err}"
+                ) from last_err
 
         if len(out) != len(texts):
             raise RuntimeError(

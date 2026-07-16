@@ -12,6 +12,7 @@ from pinecone import Pinecone, ServerlessSpec
 
 from config import config
 from services.embeddings import embedding_service
+from services.gemini_key_pool import gemini_key_pool
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,13 @@ class IngestService:
 
         report(
             f"Reading {path.name}… (embed={embedding_service.provider}/"
-            f"{embedding_service.model} dim={self.dimension})",
+            f"{embedding_service.model} dim={self.dimension}"
+            + (
+                f" · gemini_keys={gemini_key_pool.key_count()}"
+                if embedding_service.provider == "gemini"
+                else ""
+            )
+            + ")",
             phase="read",
             pct=15,
         )
