@@ -1070,38 +1070,98 @@ def _append_job_log(job_id: str, event: Any) -> None:
 
 
 def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
-    sys.path.insert(0, str(ROOT))
-    sys.path.insert(0, str(ROOT / "notbook_ai"))
-    env = _read_env()
-    for k, v in env.items():
-        if v and k not in os.environ:
-            os.environ[k] = v
+    """Background worker — must never leave job stuck in 'running'."""
+    stop_heartbeat = threading.Event()
 
-    with _upload_lock:
-        job = _upload_jobs.get(job_id)
-        if job:
-            job["status"] = "running"
-            job["started_at"] = time.time()
-            job["updated_at"] = time.time()
-            job["phase"] = "start"
-            job["pct"] = 1
-            job["message"] = "Starting ingest…"
-
-    _append_job_log(job_id, {"msg": f"Job {job_id} started", "phase": "start", "pct": 1})
-    _append_job_log(
-        job_id,
-        {
-            "msg": f"File: {dest.name} → display name: {display_name}",
-            "phase": "start",
-            "pct": 2,
-        },
-    )
+    def heartbeat() -> None:
+        n = 0
+        while not stop_heartbeat.wait(15):
+            n += 1
+            _append_job_log(
+                job_id,
+                {
+                    "msg": f"…still working (heartbeat #{n})",
+                    "phase": "running",
+                },
+            )
 
     try:
+        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT / "notbook_ai"))
+
+        # Always apply .env into this process (override empty/stale)
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(ROOT / ".env", override=True)
+        except Exception:
+            pass
+        env = _read_env()
+        for k, v in env.items():
+            if v:
+                os.environ[k] = v
+
+        with _upload_lock:
+            job = _upload_jobs.get(job_id)
+            if job:
+                job["status"] = "running"
+                job["started_at"] = time.time()
+                job["updated_at"] = time.time()
+                job["phase"] = "start"
+                job["pct"] = 1
+                job["message"] = "Starting ingest…"
+
+        _append_job_log(job_id, {"msg": f"Job {job_id} started", "phase": "start", "pct": 1})
+        _append_job_log(
+            job_id,
+            {
+                "msg": f"File: {dest.name} → display name: {display_name}",
+                "phase": "start",
+                "pct": 2,
+            },
+        )
+        if not dest.is_file():
+            raise FileNotFoundError(f"Upload file missing: {dest}")
+
+        # Secret presence (never log values)
+        _append_job_log(
+            job_id,
+            {
+                "msg": (
+                    "Env check: "
+                    f"GEMINI={'yes' if os.getenv('GEMINI_API_KEY') or os.getenv('GEMINI_API_KEYS') else 'NO'} "
+                    f"PINECONE={'yes' if os.getenv('PINECONE_API_KEY') else 'NO'}"
+                ),
+                "phase": "start",
+                "pct": 3,
+            },
+        )
+        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEYS")):
+            raise RuntimeError(
+                "GEMINI_API_KEY missing in .env — needed to embed chunks before Pinecone upload"
+            )
+        if not os.getenv("PINECONE_API_KEY"):
+            raise RuntimeError("PINECONE_API_KEY missing in .env")
+
+        hb = threading.Thread(target=heartbeat, daemon=True, name=f"hb-{job_id}")
+        hb.start()
+
+        _append_job_log(
+            job_id,
+            {"msg": "Loading ingest modules (first run can take 30–60s)…", "phase": "import", "pct": 4},
+        )
         from services.ingest import ingest_service
 
+        _append_job_log(
+            job_id,
+            {"msg": "Modules loaded — starting PDF ingest", "phase": "import", "pct": 5},
+        )
+
         def progress(event) -> None:
-            _append_job_log(job_id, event)
+            try:
+                _append_job_log(job_id, event)
+            except Exception:
+                pass
 
         result = ingest_service.ingest_pdf(
             str(dest), display_name, progress=progress, wipe_namespace=True
@@ -1138,7 +1198,6 @@ def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
                 "total": result.get("chunks"),
             },
         )
-        # Notify linked bot to refresh namespace cache
         try:
             from link_client import bot_request, link_configured
 
@@ -1155,14 +1214,19 @@ def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
                 )
                 _append_job_log(
                     job_id,
-                    {"msg": "Notified linked bot (library_upload)", "phase": "done", "pct": 100},
+                    {
+                        "msg": "Notified linked bot (library_upload)",
+                        "phase": "done",
+                        "pct": 100,
+                    },
                 )
         except Exception as ne:
             _append_job_log(
                 job_id,
                 {"msg": f"Bot notify skipped: {ne}", "phase": "done", "pct": 100},
             )
-    except Exception as e:
+    except BaseException as e:
+        # SystemExit from config.load_config is BaseException, not Exception
         err = f"{type(e).__name__}: {e}"
         with _upload_lock:
             job = _upload_jobs.get(job_id)
@@ -1170,10 +1234,12 @@ def _run_upload_job(job_id: str, dest: Path, display_name: str) -> None:
                 job["status"] = "error"
                 job["error"] = err
                 job["message"] = err
+                job["phase"] = "error"
                 job["finished_at"] = time.time()
                 job["updated_at"] = time.time()
         _append_job_log(job_id, {"msg": f"ERROR: {err}", "phase": "error"})
     finally:
+        stop_heartbeat.set()
         try:
             dest.unlink(missing_ok=True)
         except Exception:

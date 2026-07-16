@@ -293,9 +293,23 @@ $("#btn-lib-upload")?.addEventListener("click", async (ev) => {
     setMsg("#lib-msg", `job ${jobId} running — live progress below`);
     setLibProgress({ id: jobId, pct: 0, phase: "queued", current: 0, total: 0 });
 
+    let stallTicks = 0;
+    let lastLogTotal = 0;
     _libPollTimer = setInterval(async () => {
       try {
         const job = await pollLibJob(jobId);
+        if ((job.log_total || 0) > lastLogTotal) {
+          lastLogTotal = job.log_total || 0;
+          stallTicks = 0;
+        } else if (job.status === "running" || job.status === "queued") {
+          stallTicks += 1;
+          // ~45s with no new logs
+          if (stallTicks === 75) {
+            appendLibLogs([
+              "[ui] Still running — large PDFs / first Gemini import can take several minutes…",
+            ]);
+          }
+        }
         if (job.status === "done") {
           stopLibPoll();
           if (btn) btn.disabled = false;
