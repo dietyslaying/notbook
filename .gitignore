@@ -1,15 +1,29 @@
-# Environment variables
+# Environment variables / secrets
 .env
+.env.*
+!.env.example
 
-# Python caching
+# Local DB + ingest temp
+data/
+evals/last_results.json
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
 
-# Local temp files
+# Local temp / books (do not commit copyrighted PDFs)
 temp_*.pdf
 *.pdf
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
+
+# IDE
+.idea/
+.vscode/

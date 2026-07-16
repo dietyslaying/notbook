@@ -1,0 +1,36 @@
+[
+  {
+    "id": "htn-basics",
+    "query": "What is essential hypertension?",
+    "must_include_any": ["blood pressure", "hypertension", "140", "mmHg", "arterial"],
+    "expect_intent_hint": "disease",
+    "notes": "Should retrieve primary care / GP text on HTN if Murtagh or similar is indexed."
+  },
+  {
+    "id": "metformin",
+    "query": "Metformin side effects and contraindications",
+    "must_include_any": ["metformin", "lactic", "renal", "gi", "diabetes", "egfr", "gfr"],
+    "expect_intent_hint": "drug",
+    "notes": "Drug workspace; lexical hybrid should help exact drug name."
+  },
+  {
+    "id": "asthma-vs-copd",
+    "query": "Difference between asthma and COPD",
+    "must_include_any": ["asthma", "copd", "obstruct", "reversib", "smoking"],
+    "expect_intent_hint": "comparison",
+    "notes": "Comparison intent + hybrid terms."
+  },
+  {
+    "id": "acs-red-flags",
+    "query": "Red flags for acute coronary syndrome",
+    "must_include_any": ["chest", "ischemi", "mi", "coronary", "ecg", "troponin"],
+    "expect_intent_hint": "disease",
+    "notes": "Ward mode should emphasize red flags when user sets /mode ward."
+  },
+  {
+    "id": "unknown-topic",
+    "query": "Zorblax syndrome of the left flibber",
+    "expect_no_answer": true,
+    "notes": "Should fail closed when not in textbooks."
+  }
+]

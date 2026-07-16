@@ -2,5 +2,5 @@ from interfaces import IntentType
 from workspaces.base import MedicalWorkspace
 
 
-class DiseaseWorkspace(MedicalWorkspace):
-    intent = IntentType.DISEASE
+class ComparisonWorkspace(MedicalWorkspace):
+    intent = IntentType.COMPARISON

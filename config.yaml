@@ -1,16 +1,124 @@
 llm:
-  model_name: "gemini-3.1-flash-lite"
-  temperature: 0.2
-  top_p: 0.92
-  top_k: 40
-  max_output_tokens: 8192
+  model_name: "gemini-3.5-flash"
+  temperature: 0.15
+  top_p: 0.9
+  top_k: 32
+  max_output_tokens: 4096
 
 cache:
   ttl: 3600
+  max_entries: 500
+
+# --- Embeddings (upgrade from e5-large) ---
+# After changing provider/model/dimension you MUST re-ingest PDFs into the
+# configured index (old 1024-d e5 vectors are incompatible with 768-d Gemini).
+embeddings:
+  provider: gemini                 # gemini | pinecone
+  model: gemini-embedding-001      # or gemini-embedding-2 when stable for you
+  dimension: 768                   # recommended: 768 | 1536 | 3072
+  batch_size: 24
+
+# Cross-encoder / Gemini listwise rerank after hybrid fusion
+reranker:
+  enabled: true
+  backend: auto                    # auto | gemini | cross_encoder | none
+  model: BAAI/bge-reranker-v2-m3   # used when backend=cross_encoder / auto+installed
+  candidate_k: 12                  # pool size into the reranker
+  top_k: 4                         # final chunks into the LLM
 
 pinecone:
-  index_name: "library-index"
+  # New index name avoids clashing with old 1024-d e5 index
+  index_name: "library-index-v2"
+  dimension: 768
+  # Legacy field (used only when embeddings.provider=pinecone)
   embedding_model: "multilingual-e5-large"
+  top_k_per_namespace: 5
+  top_k_dense: 16
+  top_k_final: 4
+  hybrid_alpha: 0.65   # weight for dense vs BM25 before rerank
+  # Book router: search only likely namespaces (fallback to all if unsure)
+  router:
+    max_namespaces: 3
+    min_score: 0.12
+    always_include_top: 1
+    fallback_to_all: true
+    use_probe: true
+    probe_weight: 0.75
+
+# Post-generation grounding against retrieved chunks
+faithfulness:
+  enabled: true
+  min_claim_score: 0.28
+  min_overall_score: 0.22
+  max_retries: 1
+  strict: true
 
 bot:
-  rate_limit_per_minute: 5
+  rate_limit_per_minute: 8
+  max_message_chars: 3800
+  # Library framing (always shown). Not a clinician — textbook compiler only.
+  library_framing: >
+    Notbook is not a doctor or medical professional.
+    It is a compiled study library from your indexed textbooks only.
+  disclaimer: >
+    Study library only — not clinical advice. Content is taken strictly from
+    the books in this bot's database. Verify against your own texts and local guidelines.
+  emergency_banner: >
+    If this is a real emergency (severe symptoms, danger to life, self-harm),
+    contact local emergency services now. Notbook only surfaces textbook study text
+    and cannot assess or treat you.
+
+adhd:
+  max_summary_chars: 280
+  max_facts: 3
+  max_fact_chars: 90
+  max_section_chars: 900
+  max_sections: 5
+  max_paragraph_chars: 160
+  strip_emojis: true
+  filler_phrases:
+    - "it is important to note"
+    - "it should be noted"
+    - "in conclusion"
+    - "as mentioned above"
+    - "it is worth noting"
+    - "needless to say"
+    - "in other words"
+    - "as we all know"
+    - "the fact of the matter is"
+    - "at the end of the day"
+
+study_modes:
+  brief:
+    label: "30-second"
+    max_facts: 2
+    max_sections: 0
+    max_summary_chars: 160
+    focus: "Ultra short overview only. No deep sections. 2 facts max."
+  standard:
+    label: "Standard"
+    max_facts: 3
+    max_sections: 4
+    max_summary_chars: 280
+    focus: "Balanced study answer with short detail sections."
+  exam:
+    label: "Exam"
+    max_facts: 3
+    max_sections: 4
+    max_summary_chars: 220
+    focus: "High-yield exam points, traps, must-recall lists. Sections: Must-know, Traps."
+  ward:
+    label: "Ward round"
+    max_facts: 3
+    max_sections: 3
+    max_summary_chars: 200
+    focus: "Bedside/ward priorities: red flags, first steps, what not to miss. Sections: Red flags, First steps."
+
+srs:
+  daily_new_limit: 20
+  default_ease: 2.5
+
+ingest:
+  chunk_max_chars: 600
+  chunk_overlap: 80
+  batch_size: 64

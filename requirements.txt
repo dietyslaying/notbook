@@ -1,6 +1,10 @@
 aiogram==3.13.1
 pyyaml==6.0.2
-google-generativeai==0.8.3
-pinecone-client==5.0.1
+google-genai>=1.0.0
+pinecone==5.4.2
 pydantic==2.9.2
 aiohttp==3.10.10
+python-dotenv==1.0.1
+pypdfium2>=4.30.0
+# Optional local cross-encoder reranker (heavy: torch). Without it, Gemini listwise rerank is used.
+# sentence-transformers>=3.0.0

@@ -1,5 +1,6 @@
-# workspaces/drug.py
+from interfaces import IntentType
 from workspaces.base import MedicalWorkspace
 
+
 class DrugWorkspace(MedicalWorkspace):
-    pass
+    intent = IntentType.DRUG

@@ -1,16 +1,23 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from interfaces import NDMDocument
-from services.gemini_service import GeminiService
+
+from interfaces import IntentType
+from services.gemini_service import gemini_service
+
 
 class BaseWorkspace(ABC):
-    def __init__(self):
-        self.gemini = GeminiService()
+    intent: IntentType = IntentType.UNKNOWN
 
     @abstractmethod
-    async def process(self, query: str) -> dict:
+    async def process(self, query: str, study_mode: str = "standard") -> dict:
         pass
 
+
 class MedicalWorkspace(BaseWorkspace):
-    """Generic workspace for standard medical queries."""
-    async def process(self, query: str) -> dict:
-        return await self.gemini.query_medical_knowledge(query)
+    intent = IntentType.UNKNOWN
+
+    async def process(self, query: str, study_mode: str = "standard") -> dict:
+        return await gemini_service.query_medical_knowledge(
+            query, intent=self.intent, study_mode=study_mode
+        )
