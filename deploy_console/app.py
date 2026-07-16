@@ -64,8 +64,11 @@ def _check_basic_auth() -> bool:
 
 @app.before_request
 def _require_console_auth():
-    # Always allow health probes without auth
+    # Always allow health probes without browser auth
     if request.path in ("/health", "/healthz"):
+        return None
+    # Service-to-service routes use INTERNAL_SERVICE_TOKEN only (not Basic Auth)
+    if request.path.startswith("/api/internal/"):
         return None
     if not _console_auth_enabled():
         return None
