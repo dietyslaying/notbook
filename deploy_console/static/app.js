@@ -45,16 +45,25 @@ $$("#tabs button").forEach((btn) => {
 /* status */
 async function refreshStatus() {
   const s = await api("/api/status");
-  const bs = s.bot_secrets || null;
+  const bs = s.bot_secrets || (s.bot_live && s.bot_live.secrets) || null;
+  const bl = s.bot_live || {};
+  const botLine = bl.running
+    ? `ONLINE  ·  ${bl.detail || "reachable"}`
+    : `OFFLINE / UNREACHABLE  ·  ${bl.detail || bl.error || "not responding"}`;
   const lines = [
     `PROJECT   ${s.project_root}`,
     `PYTHON    ${s.python}  (${s.platform})`,
-    `LOCAL BOT ${s.bot_running ? "RUNNING  pid=" + s.bot_pid : "STOPPED (normal on Render)"}`,
-    `CONSOLE READY  ${s.ready ? "YES" : "NO — add secrets to THIS console service"}`,
     ``,
-    `NOTE  ${s.secrets_note || "Secrets below = console service only"}`,
+    `TELEGRAM BOT  ${botLine}`,
+    `  URL         ${bl.configured_url || "— (set BOT_BASE_URL)"}`,
+    `  CHECK       ${bl.mode || "—"}`,
+    `  LOCAL PID   ${s.local_bot_process ? "yes (" + s.bot_pid + ")" : "no (normal on cloud)"}`,
     ``,
-    `SECRETS ON CONSOLE SERVICE (this app)`,
+    `CONSOLE READY  ${s.ready ? "YES — can upload books / use tools" : "NO — add keys on THIS console service"}`,
+    ``,
+    `NOTE  ${s.secrets_note || ""}`,
+    ``,
+    `SECRETS ON CONSOLE (this website's Environment)`,
     `  TELEGRAM   ${s.secrets.TELEGRAM_BOT_TOKEN ? "[OK]" : "[MISSING]"}`,
     `  GEMINI     ${s.secrets.GEMINI_API_KEY ? "[OK]" : "[MISSING]"}`,
     `  PINECONE   ${s.secrets.PINECONE_API_KEY ? "[OK]" : "[MISSING]"}`,
@@ -62,9 +71,8 @@ async function refreshStatus() {
     `  RENDER API ${s.secrets.RENDER_API_KEY ? "[OK]" : "[—]"}`,
     `  RENDER_SID ${s.render_service_id || "—"}`,
     `  LINK TOK   ${s.link && s.link.token_set ? "[OK]" : "[—]"}`,
-    `  BOT URL    ${(s.link && s.link.bot_base_url) || "—"}`,
     ``,
-    `SECRETS ON BOT SERVICE (via link pull)`,
+    `SECRETS ON BOT (live check)`,
     bs
       ? [
           `  TELEGRAM   ${bs.telegram ? "[OK]" : "[MISSING]"}`,
@@ -73,19 +81,22 @@ async function refreshStatus() {
           `  LINK TOK   ${bs.internal_token ? "[OK]" : "[MISSING]"}`,
         ].join("\n")
       : s.bot_pull_error
-        ? `  (could not reach bot: ${s.bot_pull_error})`
-        : `  (set BOT_BASE_URL + INTERNAL_SERVICE_TOKEN to pull)`,
+        ? `  health: ${bl.running ? "up" : "down"} · details: ${s.bot_pull_error}`
+        : bl.running
+          ? `  health: UP (set INTERNAL_SERVICE_TOKEN on both to see key checklist)`
+          : `  (bot not reachable — free tier may be asleep; open bot URL once)`,
     ``,
-    `STACK (config.yaml)`,
+    `STACK (config.yaml on console)`,
     `  LLM        ${s.llm_model || "—"}`,
     `  EMBED      ${(s.embed && s.embed.provider) || "—"} / ${(s.embed && s.embed.model) || "—"} d=${(s.embed && s.embed.dimension) || "—"}`,
     `  INDEX      ${s.index || "—"}`,
     `  RERANKER   ${s.reranker || "—"}`,
   ];
   $("#status-pre").textContent = lines.join("\n");
-  $("#meta-line").textContent = s.ready
-    ? "CONSOLE READY"
-    : "CONSOLE NEEDS SECRETS (bot env ≠ console env)";
+  const parts = [];
+  parts.push(bl.running ? "BOT ONLINE" : "BOT OFFLINE");
+  parts.push(s.ready ? "CONSOLE READY" : "CONSOLE NEEDS SECRETS");
+  $("#meta-line").textContent = parts.join(" · ");
   return s;
 }
 

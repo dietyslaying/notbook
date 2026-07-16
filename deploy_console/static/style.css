@@ -121,6 +121,25 @@ body {
   font-weight: 600;
 }
 
+.tabs a.tab-link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  border-right: 1px solid var(--muted);
+  background: #f0ebe0;
+}
+
+.tabs a.tab-link:hover {
+  background: var(--ink);
+  color: #fff;
+}
+
 main {
   flex: 1;
   padding: 1rem 1.1rem 2rem;
