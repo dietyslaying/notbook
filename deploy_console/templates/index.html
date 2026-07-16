@@ -223,11 +223,20 @@
 
       <!-- RENDER -->
       <section id="tab-render" class="panel">
-        <h2>// RENDER.COM</h2>
+        <h2>// RENDER.COM CONTROL</h2>
         <p class="hint">
-          Manage services via API key. Prefer a service, deploy, sync secrets from local .env,
-          view recent deploys. Key stays in local .env only.
+          API controls deploys, env, logs. SSH public key is for shell access (Account → SSH Public Keys).
+          Private key never leaves this machine.
         </p>
+
+        <h2>// SSH PUBLIC KEY (add on Render)</h2>
+        <div class="row">
+          <button class="btn" id="btn-render-ssh">SHOW SSH KEY</button>
+          <button class="btn ghost" id="btn-copy-ssh">COPY PUBLIC KEY</button>
+        </div>
+        <pre id="render-ssh" class="term-block">// click SHOW SSH KEY</pre>
+
+        <h2>// SERVICE</h2>
         <div class="row">
           <button class="btn" id="btn-render-list">LIST SERVICES</button>
           <button class="btn ghost" id="btn-render-refresh">REFRESH SELECTED</button>
@@ -239,12 +248,13 @@
         </label>
         <div class="row">
           <button class="btn" id="btn-render-prefer">SET AS PREFERRED</button>
-          <button class="btn" id="btn-render-deploy">DEPLOY</button>
-          <button class="btn ghost" id="btn-render-deploy-clear">DEPLOY + CLEAR CACHE</button>
+          <button class="btn" id="btn-render-deploy">DEPLOY LATEST</button>
+          <button class="btn danger" id="btn-render-deploy-clear">CLEAR CACHE + DEPLOY LATEST</button>
         </div>
         <div class="row">
           <button class="btn ghost" id="btn-render-sync">SYNC LOCAL SECRETS → RENDER</button>
-          <button class="btn ghost" id="btn-render-env">SHOW ENV KEYS</button>
+          <button class="btn ghost" id="btn-render-env">ENV (MASKED)</button>
+          <button class="btn" id="btn-render-env-full">PULL FULL ENV</button>
           <button class="btn danger" id="btn-render-suspend">SUSPEND</button>
           <button class="btn" id="btn-render-resume">RESUME</button>
         </div>
@@ -253,6 +263,14 @@
         <pre id="render-detail" class="term-block">// list services, then select one</pre>
         <h2>// RECENT DEPLOYS</h2>
         <pre id="render-deploys" class="term-block log">// —</pre>
+        <h2>// LOGS</h2>
+        <div class="row">
+          <button class="btn" id="btn-render-logs">APP LOGS</button>
+          <button class="btn ghost" id="btn-render-logs-build">BUILD LOGS</button>
+          <button class="btn ghost" id="btn-render-logs-req">REQUEST LOGS</button>
+          <button class="btn ghost" id="btn-render-logs-auto">AUTO-REFRESH ON/OFF</button>
+        </div>
+        <pre id="render-logs" class="term-block log">// fetch logs for selected service</pre>
       </section>
 
       <!-- LOCAL -->

@@ -7,6 +7,9 @@
 data/
 evals/last_results.json
 deploy_artifacts/
+# SSH private keys for Render shell (public can be shared)
+data/ssh/
+!data/ssh/*.pub
 
 # Python
 __pycache__/

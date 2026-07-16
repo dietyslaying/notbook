@@ -589,6 +589,118 @@ def api_render_prefer():
     return jsonify({"ok": True, "RENDER_SERVICE_ID": sid})
 
 
+@app.get("/api/render/logs/<service_id>")
+def api_render_logs(service_id: str):
+    try:
+        client, _ = _render_client()
+        limit = int(request.args.get("limit") or 80)
+        log_type = request.args.get("type") or None  # app|build|request
+        data = client.get_logs(service_id, limit=limit, log_type=log_type)
+        # plain text for terminal display
+        text_lines = []
+        for row in data.get("logs") or []:
+            ts = (row.get("timestamp") or "")[:19].replace("T", " ")
+            typ = row.get("type") or ""
+            msg = row.get("message") or ""
+            prefix = f"[{ts}]" + (f" ({typ})" if typ else "")
+            text_lines.append(f"{prefix} {msg}")
+        return jsonify(
+            {
+                "ok": True,
+                "text": "\n".join(text_lines) if text_lines else "(no log lines)",
+                "count": len(text_lines),
+                "hasMore": data.get("hasMore"),
+            }
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.get("/api/render/env/<service_id>/full")
+def api_render_env_full(service_id: str):
+    """Full env dump (unmasked). For local console only — do not expose publicly."""
+    try:
+        client, _ = _render_client()
+        vars_ = client.list_env_vars(service_id)
+        # Sort keys for readability
+        rows = sorted(
+            [{"key": str(v.get("key") or ""), "value": str(v.get("value") or "")} for v in vars_],
+            key=lambda x: x["key"],
+        )
+        text = "\n".join(f"{r['key']}={r['value']}" for r in rows)
+        return jsonify({"ok": True, "env": rows, "text": text, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.post("/api/render/deploy/clear")
+def api_render_deploy_clear():
+    """Clear build cache and deploy latest commit on the linked branch."""
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        client, env = _render_client()
+        sid = (body.get("service_id") or env.get("RENDER_SERVICE_ID") or "").strip()
+        if not sid:
+            return jsonify({"ok": False, "error": "service_id required"}), 400
+        deploy = client.trigger_deploy(sid, clear_cache=True)
+        return jsonify(
+            {
+                "ok": True,
+                "message": "Clear cache + deploy latest commit triggered",
+                "deploy": deploy,
+                "service_id": sid,
+            }
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.get("/api/render/ssh")
+def api_render_ssh():
+    """Return console SSH public key + connection hint for selected service."""
+    pub_path = ROOT / "data" / "ssh" / "render_notbook_ed25519.pub"
+    priv_path = ROOT / "data" / "ssh" / "render_notbook_ed25519"
+    if not pub_path.is_file():
+        return jsonify(
+            {
+                "ok": False,
+                "error": "SSH key missing. Run: ssh-keygen -t ed25519 -f data/ssh/render_notbook_ed25519",
+            }
+        ), 404
+    pub = pub_path.read_text(encoding="utf-8").strip()
+    env = _read_env()
+    sid = (request.args.get("service_id") or env.get("RENDER_SERVICE_ID") or "").strip()
+    ssh_cmd = None
+    region = None
+    if sid:
+        try:
+            client, _ = _render_client()
+            sm = client.summarize_service(client.get_service(sid))
+            ssh_cmd = sm.get("ssh_command")
+            region = sm.get("region")
+        except Exception:
+            pass
+    return jsonify(
+        {
+            "ok": True,
+            "public_key": pub,
+            "private_key_path": str(priv_path),
+            "public_key_path": str(pub_path),
+            "add_key_url": "https://dashboard.render.com/settings#ssh-public-keys",
+            "ssh_command": ssh_cmd,
+            "region": region,
+            "service_id": sid or None,
+            "instructions": [
+                "Open https://dashboard.render.com/settings#ssh-public-keys",
+                "Click + Add SSH Public Key",
+                "Name: Notbook Deploy Console",
+                "Paste the public_key below",
+                "Save, then use ssh_command (paid plans; free web services may not allow shell)",
+            ],
+        }
+    )
+
+
 @app.get("/api/env")
 def api_env_get():
     env = _read_env()

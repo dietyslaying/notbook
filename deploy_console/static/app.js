@@ -342,7 +342,32 @@ async function renderDeploy(clearCache) {
   }
 }
 $("#btn-render-deploy")?.addEventListener("click", () => renderDeploy(false));
-$("#btn-render-deploy-clear")?.addEventListener("click", () => renderDeploy(true));
+$("#btn-render-deploy-clear")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  if (
+    !confirm(
+      "Clear build cache and deploy the LATEST commit on the linked branch?\nThis rebuilds from scratch."
+    )
+  )
+    return;
+  setMsg("#render-msg", "CLEAR CACHE + DEPLOY LATEST…");
+  try {
+    const r = await api("/api/render/deploy/clear", {
+      method: "POST",
+      body: JSON.stringify({ service_id: sid }),
+    });
+    const d = r.deploy || {};
+    setMsg(
+      "#render-msg",
+      `${r.message || "ok"}\nid=${d.id || "?"}\nstatus=${d.status || "?"}`
+    );
+    await refreshRenderDetail();
+    await fetchRenderLogs(null);
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
 
 $("#btn-render-sync")?.addEventListener("click", async () => {
   const sid = selectedRenderServiceId();
@@ -376,10 +401,115 @@ $("#btn-render-env")?.addEventListener("click", async () => {
     const r = await api("/api/render/env/" + encodeURIComponent(sid) + "?masked=1");
     const lines = (r.env || []).map((e) => `${e.key}=${e.value}`);
     $("#render-detail").textContent =
-      `ENV VARS (${lines.length})\n\n` + (lines.join("\n") || "(none)");
+      `ENV VARS MASKED (${lines.length})\n\n` + (lines.join("\n") || "(none)");
     setMsg("#render-msg", "env keys loaded (values masked)");
   } catch (e) {
     setMsg("#render-msg", String(e), false);
+  }
+});
+
+$("#btn-render-env-full")?.addEventListener("click", async () => {
+  const sid = selectedRenderServiceId();
+  if (!sid) return setMsg("#render-msg", "select a service first", false);
+  if (
+    !confirm(
+      "Pull FULL unmasked environment variables from Render?\nKeep this private — secrets will appear on screen."
+    )
+  )
+    return;
+  try {
+    const r = await api(
+      "/api/render/env/" + encodeURIComponent(sid) + "/full"
+    );
+    $("#render-detail").textContent =
+      `ENV FULL (${r.count})\n\n` + (r.text || "(none)");
+    setMsg("#render-msg", `pulled ${r.count} env vars (FULL — sensitive)`);
+  } catch (e) {
+    setMsg("#render-msg", String(e), false);
+  }
+});
+
+/* logs */
+let _renderLogsTimer = null;
+async function fetchRenderLogs(type) {
+  const sid = selectedRenderServiceId();
+  if (!sid) {
+    $("#render-logs").textContent = "// select a service first";
+    return;
+  }
+  const q = type ? `?limit=100&type=${encodeURIComponent(type)}` : "?limit=100";
+  const r = await api("/api/render/logs/" + encodeURIComponent(sid) + q);
+  if (!r.ok) throw new Error(r.error || "logs failed");
+  $("#render-logs").textContent = r.text || "(empty)";
+  setMsg("#render-msg", `logs: ${r.count} lines` + (type ? ` type=${type}` : ""));
+}
+$("#btn-render-logs")?.addEventListener("click", () => {
+  fetchRenderLogs("app").catch((e) => setMsg("#render-msg", String(e), false));
+});
+$("#btn-render-logs-build")?.addEventListener("click", () => {
+  fetchRenderLogs("build").catch((e) => setMsg("#render-msg", String(e), false));
+});
+$("#btn-render-logs-req")?.addEventListener("click", () => {
+  fetchRenderLogs("request").catch((e) => setMsg("#render-msg", String(e), false));
+});
+$("#btn-render-logs-auto")?.addEventListener("click", () => {
+  if (_renderLogsTimer) {
+    clearInterval(_renderLogsTimer);
+    _renderLogsTimer = null;
+    setMsg("#render-msg", "log auto-refresh OFF");
+    return;
+  }
+  setMsg("#render-msg", "log auto-refresh ON (15s)");
+  fetchRenderLogs("app").catch(() => {});
+  _renderLogsTimer = setInterval(() => {
+    fetchRenderLogs("app").catch(() => {});
+  }, 15000);
+});
+
+/* SSH */
+async function loadSshInfo() {
+  const sid = selectedRenderServiceId();
+  const q = sid ? "?service_id=" + encodeURIComponent(sid) : "";
+  const r = await api("/api/render/ssh" + q);
+  if (!r.ok) throw new Error(r.error || "ssh info failed");
+  const lines = [
+    "ADD THIS PUBLIC KEY ON RENDER:",
+    "  " + (r.add_key_url || ""),
+    "",
+    "PUBLIC KEY:",
+    r.public_key || "",
+    "",
+    "PRIVATE KEY PATH (local only):",
+    "  " + (r.private_key_path || ""),
+    "",
+    "SSH COMMAND (after key is added; paid shell plans):",
+    "  " + (r.ssh_command || "(select service for host)"),
+    r.region ? "  region=" + r.region : "",
+    "",
+    "STEPS:",
+    ...(r.instructions || []).map((s, i) => `  ${i + 1}. ${s}`),
+    "",
+    "NOTE: Deploy/env/logs use RENDER_API_KEY (already configured).",
+    "      SSH is only for interactive shell into the instance.",
+  ];
+  $("#render-ssh").textContent = lines.filter(Boolean).join("\n");
+  window._lastRenderPubKey = r.public_key || "";
+  return r;
+}
+$("#btn-render-ssh")?.addEventListener("click", () => {
+  loadSshInfo().catch((e) => {
+    $("#render-ssh").textContent = String(e);
+  });
+});
+$("#btn-copy-ssh")?.addEventListener("click", async () => {
+  try {
+    if (!window._lastRenderPubKey) await loadSshInfo();
+    const key = window._lastRenderPubKey || "";
+    if (!key) throw new Error("no key");
+    await navigator.clipboard.writeText(key);
+    setMsg("#render-msg", "public key copied to clipboard");
+  } catch (e) {
+    setMsg("#render-msg", "copy failed — select text manually", false);
   }
 });
 
