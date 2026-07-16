@@ -5,9 +5,11 @@ Local:
   python run_deploy_console.py
 
 Render / cloud (Web Service — NOT Static Site):
-  Build:  pip install -r requirements.txt
+  Build:  pip install -r requirements-console.txt
   Start:  python run_deploy_console.py
   Env:    PORT (auto), CONSOLE_PASSWORD (required recommended), secrets…
+
+  Bot service uses requirements.txt; console uses requirements-console.txt.
 """
 
 from __future__ import annotations
@@ -27,9 +29,15 @@ except ImportError:
     print("Installing Flask for Deploy Console…")
     import subprocess
 
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0"]
-    )
+    req = ROOT / "requirements-console.txt"
+    if req.is_file():
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-r", str(req)]
+        )
+    else:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "flask>=3.0.0", "pyyaml>=6.0"]
+        )
 
 from app import app, _ensure_dirs  # noqa: E402
 

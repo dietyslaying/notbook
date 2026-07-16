@@ -1,0 +1,14 @@
+# Deploy Console only (Flask UI + library upload + Render API control)
+# Lighter than the bot — no aiogram / aiohttp.
+# Render Web Service build:
+#   pip install -r requirements-console.txt
+#   python run_deploy_console.py
+# Python 3.11 recommended (runtime.txt).
+
+flask>=3.0.0
+pyyaml==6.0.2
+python-dotenv==1.0.1
+google-genai>=1.0.0
+pinecone==5.4.2
+pydantic==2.9.2
+pypdfium2>=4.30.0

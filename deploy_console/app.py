@@ -272,7 +272,7 @@ services:
     name: notbook-console
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements-console.txt
     startCommand: python run_deploy_console.py
     envVars:
       - key: CONSOLE_PASSWORD
@@ -314,9 +314,11 @@ Cancel "New Static Site" and use **Web Service** instead.
 | Language | Python 3 |
 | Branch | main |
 | Root Directory | (leave empty) |
-| Build Command | `pip install -r requirements.txt` |
+| Build Command | `pip install -r requirements-console.txt` |
 | Start Command | `python run_deploy_console.py` |
 | Instance | Free (sleeps) or paid |
+
+Bot service uses `requirements.txt` instead.
 
 ## Environment variables (required)
 

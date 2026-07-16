@@ -1,4 +1,5 @@
-# Pin Python 3.11 on Render (see runtime.txt). Avoid 3.14 — pydantic-core has no wheels and fails to build.
+# Notbook Telegram bot (main service on Render / Docker)
+# Use Python 3.11 (see runtime.txt) — avoid 3.14 for pydantic-core wheels.
 aiogram==3.13.1
 pyyaml==6.0.2
 google-genai>=1.0.0
@@ -7,6 +8,5 @@ pydantic==2.9.2
 aiohttp==3.10.10
 python-dotenv==1.0.1
 pypdfium2>=4.30.0
-flask>=3.0.0
-# Optional local cross-encoder reranker (heavy: torch). Without it, Gemini listwise rerank is used.
+# Optional local cross-encoder reranker (heavy: torch)
 # sentence-transformers>=3.0.0
