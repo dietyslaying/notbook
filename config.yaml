@@ -118,6 +118,84 @@ study_modes:
     max_summary_chars: 200
     focus: "Bedside/ward priorities: red flags, first steps, what not to miss. Sections: Red flags, First steps."
 
+# --- Clinical case work-up (Phase 8) ---
+# A question that reads like a patient vignette (age/sex + complaint/duration)
+# answers with the full case framework instead of the normal study answer.
+# A "situation lens" (archetype) adapts emphasis to the presentation type;
+# the 15-section skeleton and its order never change.
+case_framework:
+  enabled: true
+  detection_threshold: 4   # score: age/sex=3, complaint wording=2, duration=1; age/sex+either always qualifies
+  max_bullets: 8
+  max_bullet_chars: 170
+  show_lens: true          # "Situation · <archetype>" banner on case answers
+  archetypes:
+    acute:
+      label: "Acute / red-flag"
+      emoji: "🚨"
+      focus: >
+        This is an acute presentation. If unstable, prioritize ABCDE, vitals,
+        immediate life threats and stabilization. If stable, make must-not-miss
+        diagnoses explicit (ACS, PE, aortic dissection, sepsis), list red flags
+        and escalation criteria, and state admission thresholds.
+      suggest:
+        - "What not to miss"
+        - "First steps"
+    obstetric:
+      label: "Pregnancy / obstetric"
+      emoji: "🤰"
+      focus: >
+        Include pregnancy status and gestation. Prioritize obstetric red flags
+        (bleeding, pre-eclampsia, reduced fetal movements), fetal assessment,
+        and urgent referral thresholds.
+      suggest:
+        - "Obstetric red flags"
+        - "Fetal assessment"
+    pediatric:
+      label: "Pediatric"
+      emoji: "🧒"
+      focus: >
+        Age-specific priorities: hydration and feeding, fever handling, growth,
+        weight-based drug dosing, and red flags in children (meningism, sepsis,
+        dehydration). State admission criteria and safeguarding.
+      suggest:
+        - "Red flags in children"
+        - "Hydration & feeding"
+    psychiatric:
+      label: "Psychiatric"
+      emoji: "🧠"
+      focus: >
+        Prioritize risk to self and others, safety plan, capacity, safeguarding,
+        admission criteria and follow-up. Cover substance use when relevant.
+      suggest:
+        - "Risk assessment"
+        - "Safety plan"
+    geriatric:
+      label: "Geriatric"
+      emoji: "👴"
+      focus: >
+        Include baseline function, frailty, falls, polypharmacy and de-prescribing,
+        delirium vs dementia, social support and capacity. Adjust management to
+        function, not just age.
+      suggest:
+        - "Baseline function"
+        - "Polypharmacy"
+    chronic:
+      label: "Chronic care"
+      emoji: "🗓️"
+      focus: >
+        Long-standing problem: deepen history (adherence, lifestyle), monitoring
+        plan, treatment ladder, and prevention / secondary prevention. Give a
+        realistic follow-up timeline.
+      suggest:
+        - "Monitoring"
+        - "Prevention"
+    general:
+      label: "General"
+      emoji: "📘"
+      focus: "Balanced work-up across all sections."
+      suggest: []
+
 srs:
   daily_new_limit: 20
   default_ease: 2.5

@@ -40,6 +40,10 @@ class ComponentPolicy:
         if "error" in ndm_data:
             return [{"kind": "error", "data": ndm_data["error"]}]
 
+        # Case work-up: pre-rendered single page (locked 16-section format)
+        if ndm_data.get("case_html"):
+            return [{"kind": "case", "html": str(ndm_data["case_html"])}]
+
         pages: list[dict] = [
             {
                 "kind": "overview",

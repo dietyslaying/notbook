@@ -23,6 +23,7 @@ from services.library import book_label_for_user
 from services.rate_limiter import RateLimiter
 from services.safety import assess, compose_disclaimer
 from workspaces.base import MedicalWorkspace
+from workspaces.case import CaseWorkspace
 from workspaces.comparison import ComparisonWorkspace
 from workspaces.disease import DiseaseWorkspace
 from workspaces.drug import DrugWorkspace
@@ -55,6 +56,7 @@ class MessageHandler:
         self.drug_ws = DrugWorkspace()
         self.comparison_ws = ComparisonWorkspace()
         self.study_ws = StudyWorkspace()
+        self.case_ws = CaseWorkspace()
         self.fallback_ws = MedicalWorkspace()
         self.rate_limiter = RateLimiter(int(bot_cfg.get("rate_limit_per_minute", 8)))
         self.bot_cfg = bot_cfg
@@ -114,11 +116,30 @@ class MessageHandler:
                     markdown="# Working…\n\nReading your question and picking a study path.",
                 )
 
-            intent = await self.intent_engine.classify(query)
+            # Patient vignette (age/sex + complaint/duration) → case work-up
+            if self.case_ws.matches(query):
+                intent = None
+                ndm = await self.case_ws.process(
+                    query, study_mode=study_mode, namespaces=namespaces
+                )
+            else:
+                intent = await self.intent_engine.classify(query)
+                ws_kwargs = {"study_mode": study_mode, "namespaces": namespaces}
+                if intent == IntentType.DISEASE:
+                    ndm = await self.disease_ws.process(query, **ws_kwargs)
+                elif intent == IntentType.DRUG:
+                    ndm = await self.drug_ws.process(query, **ws_kwargs)
+                elif intent == IntentType.COMPARISON:
+                    ndm = await self.comparison_ws.process(query, **ws_kwargs)
+                elif intent == IntentType.STUDY:
+                    ndm = await self.study_ws.process(query, **ws_kwargs)
+                else:
+                    ndm = await self.fallback_ws.process(query, **ws_kwargs)
+            intent_tag = "case" if intent is None else intent.value
             logger.info(
                 "user=%s intent=%s mode=%s book=%s q=%r",
                 user_id,
-                intent.value,
+                intent_tag,
                 study_mode,
                 preferred_ns or "*",
                 query[:80],
@@ -131,24 +152,12 @@ class MessageHandler:
                     draft_id,
                     markdown=(
                         f"# Working…\n\n"
-                        f"**Intent:** `{intent.value}`  \n"
+                        f"**Intent:** `{intent_tag}`  \n"
                         f"**Mode:** {study_mode}  \n"
                         f"**Library:** {scope}\n\n"
                         f"Searching textbook chunks…"
                     ),
                 )
-
-            ws_kwargs = {"study_mode": study_mode, "namespaces": namespaces}
-            if intent == IntentType.DISEASE:
-                ndm = await self.disease_ws.process(query, **ws_kwargs)
-            elif intent == IntentType.DRUG:
-                ndm = await self.drug_ws.process(query, **ws_kwargs)
-            elif intent == IntentType.COMPARISON:
-                ndm = await self.comparison_ws.process(query, **ws_kwargs)
-            elif intent == IntentType.STUDY:
-                ndm = await self.study_ws.process(query, **ws_kwargs)
-            else:
-                ndm = await self.fallback_ws.process(query, **ws_kwargs)
 
             if draft_id and "error" not in ndm:
                 title_preview = str(ndm.get("title") or "topic")[:80]

@@ -84,6 +84,25 @@ class TelegramRenderer:
                 page_count=1,
             )
 
+        if kind == "case":
+            # Pre-rendered case work-up HTML (locked format) — pass through as-is.
+            body = page.get("html") or ""
+            keyboard = TelegramRenderer._keyboard(
+                concept_id=concept_id,
+                page_index=page_index,
+                page_count=page_count,
+                has_details=False,
+                kind=kind,
+                bookmarked=bookmarked,
+            )
+            return TelegramScreen(
+                html=body,
+                rich_markdown=None,  # HTML-only; rich markdown cannot represent it
+                inline_keyboard=keyboard,
+                page_index=page_index,
+                page_count=page_count,
+            )
+
         parts: list[str] = []
         md_parts: list[str] = []
 
@@ -213,6 +232,9 @@ class TelegramRenderer:
     ) -> list[list[dict]]:
         cid = concept_id[:40]
         rows: list[list[dict]] = []
+
+        if kind == "case":
+            return [[{"text": "Menu", "callback_data": "menu:main"}]]
 
         if page_count > 1:
             nav: list[dict] = []

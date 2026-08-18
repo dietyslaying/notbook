@@ -5,6 +5,7 @@
 
 # Local DB + ingest temp
 data/
+logs/
 evals/last_results.json
 deploy_artifacts/
 # SSH private keys for Render shell (public can be shared)
