@@ -63,6 +63,13 @@ async def handle_webhook(request: web.Request) -> web.Response:
 app.router.add_get("/", handle_health)
 app.router.add_get("/health", handle_health)
 
+# Webhook route registered BEFORE the router freezes (AppRunner.setup()).
+webhook_cfg = config.raw_config.get("webhook") or {}
+_webhook_path = str(webhook_cfg.get("path") or "/webhook")
+if not _webhook_path.startswith("/"):
+    _webhook_path = "/" + _webhook_path
+app.router.add_post(_webhook_path, handle_webhook)
+
 # Console ↔ bot authenticated routes (/internal/*)
 from handlers.internal_api import register_internal_routes  # noqa: E402
 
@@ -173,14 +180,15 @@ async def main() -> None:
                 or webhook_cfg.get("secret_token")
                 or ""
             )
-            app.router.add_post(path, handle_webhook)
             await bot.set_webhook(
                 f"{public_url}{path}",
                 secret_token=secret or None,
                 allowed_updates=["message", "callback_query"],
             )
             logger.info("Webhook set: %s%s", public_url, path)
-            await dp.start_polling(bot)
+            # Do NOT poll here: getUpdates conflicts with an active webhook
+            # (Telegram 409). The aiohttp server keeps the process alive.
+            await asyncio.Event().wait()
         else:
             await bot.delete_webhook(drop_pending_updates=True)
             logger.info("Starting Notbook AI polling (no public URL → long polling)")
