@@ -196,6 +196,15 @@ case_framework:
       focus: "Balanced work-up across all sections."
       suggest: []
 
+# Telegram webhook mode. Keeps the bot awake on Render free tier: every
+# incoming update is inbound HTTP traffic, so the instance never idles out.
+# Enabled automatically when RENDER_EXTERNAL_URL (or webhook.public_url) is set.
+webhook:
+  enabled: true
+  path: "/webhook"
+  secret_token: "81049240ffd1c5265b6b759de2375069"
+  public_url: ""   # optional override; auto-detected from RENDER_EXTERNAL_URL
+
 srs:
   daily_new_limit: 20
   default_ease: 2.5

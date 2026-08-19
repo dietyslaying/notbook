@@ -1,4 +1,9 @@
-"""Notbook AI — Telegram entrypoint (polling + health port)."""
+"""Notbook AI — Telegram entrypoint (webhook + health port, polling fallback).
+
+Webhook mode keeps the bot awake on Render's free tier: Telegram POSTs each
+update to the service (inbound traffic), so Render never considers it idle.
+Falls back to long polling automatically when no public URL is known
+(local dev)."""
 
 from __future__ import annotations
 
@@ -18,7 +23,7 @@ if str(_PKG) not in sys.path:
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, Update
 
 from config import config
 
@@ -34,6 +39,25 @@ app = web.Application()
 
 async def handle_health(_request: web.Request) -> web.Response:
     return web.Response(text="Notbook AI is running")
+
+
+async def handle_webhook(request: web.Request) -> web.Response:
+    """Telegram POSTs updates here; verified with X-Telegram-Bot-Api-Secret-Token."""
+    webhook_cfg = config.raw_config.get("webhook") or {}
+    secret = os.getenv("WEBHOOK_SECRET_TOKEN") or webhook_cfg.get("secret_token") or ""
+    if secret and request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
+        return web.Response(status=403, text="forbidden")
+    try:
+        payload = await request.json()
+    except Exception:
+        return web.Response(status=400, text="bad json")
+    try:
+        update = Update.model_validate(payload)
+        await dp.feed_webhook_update(bot, update, update_id=update.update_id)
+    except Exception:
+        logger.exception("webhook update failed")
+        return web.Response(status=500, text="error")
+    return web.Response(status=200, text="ok")
 
 
 app.router.add_get("/", handle_health)
@@ -133,10 +157,34 @@ async def main() -> None:
     except Exception:
         pass
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Starting Notbook AI polling")
+    webhook_cfg = config.raw_config.get("webhook") or {}
+    public_url = (
+        webhook_cfg.get("public_url")
+        or os.getenv("RENDER_EXTERNAL_URL")
+        or ""
+    ).strip().rstrip("/")
     try:
-        await dp.start_polling(bot)
+        if public_url and webhook_cfg.get("enabled", True):
+            path = str(webhook_cfg.get("path") or "/webhook")
+            if not path.startswith("/"):
+                path = "/" + path
+            secret = (
+                os.getenv("WEBHOOK_SECRET_TOKEN")
+                or webhook_cfg.get("secret_token")
+                or ""
+            )
+            app.router.add_post(path, handle_webhook)
+            await bot.set_webhook(
+                f"{public_url}{path}",
+                secret_token=secret or None,
+                allowed_updates=["message", "callback_query"],
+            )
+            logger.info("Webhook set: %s%s", public_url, path)
+            await dp.start_polling(bot)
+        else:
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Starting Notbook AI polling (no public URL → long polling)")
+            await dp.start_polling(bot)
     finally:
         try:
             from handlers.internal_api import notify_console
