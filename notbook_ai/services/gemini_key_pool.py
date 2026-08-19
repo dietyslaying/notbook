@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _COOLDOWN_RPM = 35.0          # short rate limit — try another key immediately
 _COOLDOWN_DAILY = 45 * 60.0   # daily free-tier style — park key ~45 min
 _COOLDOWN_OTHER = 8.0         # other transient errors
-_COOLDOWN_MAX_WAIT = 25.0     # never block longer than this when all keys hot
+_COOLDOWN_MAX_WAIT = 90.0     # wait out short rate windows before trying a key
 
 
 def is_quota_or_rate(err: str) -> bool:
@@ -181,10 +181,15 @@ class GeminiKeyPool:
                 cool = _COOLDOWN_OTHER
                 kind = "error"
 
-            # Parse RetryInfo "retry in Xs" if present — use as minimum
+            # Parse RetryInfo "retry in Xs" if present — the authoritative hint.
+            # Gemini returns it for short-window limits (often ~30-60s) even when
+            # the message text mentions free-tier/daily quotas. Honor it: never
+            # park longer than ~3x the suggested retry.
             m = re.search(r"retry in\s+([\d.]+)\s*s", msg, re.I)
             if m:
-                cool = max(cool, float(m.group(1)) + 1.0)
+                suggested = float(m.group(1)) + 5.0
+                cool = min(cool, max(suggested, _COOLDOWN_OTHER + 5.0))
+                kind = "retry_hint"
 
             until = time.monotonic() + cool
             prev = self._cooldown_until.get(api_key, 0.0)
