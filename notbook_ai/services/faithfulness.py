@@ -181,7 +181,7 @@ def apply_faithfulness_gate(
             ok=False,
             ndm={
                 "error": (
-                    "No textbook excerpts were available to ground an answer. "
+                    "Not enough source material to ground an answer. "
                     "Try different wording."
                 )
             },
@@ -264,14 +264,14 @@ def apply_faithfulness_gate(
             notes_pre.append("summary rebuilt from grounded facts")
         else:
             summary = (
-                "The library excerpts did not support a clear short summary for this query."
+                "Not enough source material to support a clear short summary for this query."
             )
             sum_score = 1.0  # meta statement
             notes_pre.append("summary replaced — insufficient grounding")
 
     # Overall score only from *content* that remains grounded (not meta placeholders)
     content_scores = fact_scores + section_scores
-    if summary and not summary.startswith("The library excerpts did not support"):
+    if summary and not summary.startswith("Not enough source material to support"):
         content_scores = content_scores + [sum_score]
     overall = sum(content_scores) / len(content_scores) if content_scores else 0.0
 
@@ -294,9 +294,9 @@ def apply_faithfulness_gate(
             ok=False,
             ndm={
                 "error": (
-                    "I found library text, but could not ground a reliable answer "
+                    "I found some source text, but could not ground a reliable answer "
                     "in those excerpts without inventing details. "
-                    "Try a more specific term or another book wording."
+                    "Try a more specific term or different wording."
                 )
             },
             dropped_facts=dropped_facts,
@@ -313,7 +313,7 @@ def apply_faithfulness_gate(
             ok=False,
             ndm={
                 "error": (
-                    "Answer failed the faithfulness check against retrieved textbook chunks. "
+                    "Answer failed the faithfulness check against the retrieved source text. "
                     "Try rephrasing the question."
                 )
             },
@@ -337,7 +337,7 @@ def apply_faithfulness_gate(
             ref_to_c[f"c{i}"] = c
         first = ref_to_c.get(used[0])
         if first:
-            book = first.get("book") or "Textbook"
+            book = first.get("book") or "Source"
             page = first.get("page", "N/A")
             data["source_citation"] = f"{book}, p.{page}"
 

@@ -72,7 +72,7 @@ class ComponentPolicy:
         pages.append(
             {
                 "kind": "source",
-                "source": ndm_data.get("source_citation") or "Textbook excerpt",
+                "source": ndm_data.get("source_citation") or "Excerpt",
                 "disclaimer": disclaimer,
             }
         )

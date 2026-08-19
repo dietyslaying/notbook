@@ -41,8 +41,8 @@ class CaseWorkspace(BaseWorkspace):
         if not context:
             return {
                 "error": (
-                    "I couldn't find excerpts covering this case in the library. "
-                    "Try different wording, another book from the menu, or re-ingest."
+                    "I couldn't find excerpts covering this case in the sources. "
+                    "Try different wording or pick a different source from the menu."
                 )
             }
 
@@ -62,6 +62,19 @@ class CaseWorkspace(BaseWorkspace):
 
         data = cf.validate_case_json(raw)
         if "error" in data:
+            # One repair retry: the model may have wrapped JSON in prose/fences.
+            logger.warning("case JSON parse failed, retrying with repair hint")
+            try:
+                raw = await gemini_service.generate_json(
+                    prompt
+                    + "\n\nIMPORTANT: Your previous response was not parseable JSON. "
+                    "Return ONLY the JSON object itself — no markdown fences, no commentary."
+                )
+                data = cf.validate_case_json(raw)
+            except Exception as e:
+                logger.exception("case repair retry failed")
+                return {"error": f"Generation failed. Please try again. ({type(e).__name__})"}
+        if "error" in data:
             return data
 
         scope = cf.scope_label(namespaces)
@@ -72,7 +85,7 @@ class CaseWorkspace(BaseWorkspace):
             "core_facts": [],
             "detail_sections": [],
             "case_html": html,
-            "source_citation": source_hint or "Textbook excerpt",
+            "source_citation": source_hint or "Excerpt",
             "citations": citations,
             "study_mode": study_mode,
             "route": {"strategy": "case", "reason": "patient vignette detected", "selected": namespaces or [], "total": 0},

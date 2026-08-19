@@ -264,7 +264,7 @@ def _mode_hint(mode: str) -> str:
     hints = {
         "brief": "User is in 30-second mode — keep bullets very short, max 4 per section.",
         "exam": "User is in Exam mode — make facts high-yield and testable (numbers, names, criteria, traps).",
-        "ward": "User is in Ward round mode — emphasize bedside priorities, red flags, first steps.",
+        "ward": "User is in Practical mode — always produce the full case work-up format.",
     }
     return hints.get(mode, "")
 
@@ -441,7 +441,7 @@ FORMAT:
 - JSON only. No markdown, no HTML, no emojis inside the JSON text.
 - Three item types per section: "~Label" → sub-heading (bold + underline); "- text" → plain prose line (lead-ins, takeaways, A → B reasoning); anything else → "•" bullet. Every section must be readable in the sample-case style.
 - Bullets short (max ~150 chars), max 8 per section.
-- No filler ("it is important to note", "in conclusion"). Study compilation only — not clinical advice.
+- No filler ("it is important to note", "in conclusion"). Keep it tight.
 
 SCOPE: {scope}
 SITUATION LENS:
@@ -625,9 +625,6 @@ def render_case(
         )
         if bl:
             parts.append(bl)
-    parts.append(
-        f"<blockquote>Study library only — not clinical advice · {_esc(scope_label)}</blockquote>"
-    )
     return "\n\n\n".join(parts)
 
 
@@ -678,24 +675,36 @@ _REQUIRED_CASE_KEYS = [
 ]
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
+_TRAILING_COMMA = re.compile(r",\s*([}\]])")
+
+
+def _extract_json(text: str) -> Optional[dict[str, Any]]:
+    """Best-effort JSON object extraction (fences, prose, trailing commas)."""
+    text = (text or "").strip()
+    text = _FENCE.sub("", text).strip()
+    candidates: list[str] = []
+    if text.startswith("{") and text.endswith("}"):
+        candidates.append(text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(text[start : end + 1])
+    for cand in candidates:
+        for attempt in (cand, _TRAILING_COMMA.sub(r"\1", cand)):
+            try:
+                data = json.loads(attempt)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
+    return None
 
 
 def validate_case_json(raw_llm_output: str) -> dict[str, Any]:
     """Parse + soft-validate the case JSON. Returns {"error": ...} on failure."""
-    text = (raw_llm_output or "").strip()
-    text = _FENCE.sub("", text).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                data = json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                return {"error": "Model returned unparseable JSON for the case work-up."}
-        else:
-            return {"error": "Model returned unparseable JSON for the case work-up."}
+    data = _extract_json(raw_llm_output)
+    if data is None:
+        return {"error": "Model returned unparseable JSON for the case work-up."}
     if not isinstance(data, dict):
         return {"error": "Model returned non-object JSON for the case work-up."}
 
@@ -721,4 +730,4 @@ def one_line(data: dict[str, Any]) -> str:
     wd = data.get("working_diagnosis") or []
     if wd:
         return _clean(str(wd[0]), 220)
-    return "Structured clinical case work-up from the study library."
+    return "Structured clinical case work-up."

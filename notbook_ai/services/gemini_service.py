@@ -40,8 +40,8 @@ Return ONLY valid JSON with this exact shape (no markdown fences):
 }
 
 STRICT RULES:
-- You are NOT a doctor. You only compile/restate what is in TEXTBOOK CONTEXT.
-- Use ONLY the textbook context for medical facts. Never invent guidelines or doses.
+- You compile and restate content from the provided CONTEXT only. Never invent facts, guidelines, or doses.
+- Use ONLY the context for medical facts.
 - Every core_fact MUST be supportable by one of the [cN] excerpts.
 - citations_used MUST only list refs that appear in the context (c1, c2, ...).
 - If context is thin or off-topic, say so in the summary. Do not fill gaps from general knowledge.
@@ -334,7 +334,7 @@ class GeminiService:
                 meta = match["metadata"]
                 text = match.get("text") or ""
                 page = meta.get("page", "N/A")
-                book = meta.get("book") or meta.get("source") or meta.get("_ns") or "Textbook"
+                book = meta.get("book") or meta.get("source") or meta.get("_ns") or "Source"
                 cid = f"c{i + 1}"
                 chunk_id = match.get("id") or f"{meta.get('_ns')}:{page}:{i}"
                 if i == 0:
@@ -416,11 +416,9 @@ RETRY / STRICT MODE:
 - citations_used must be a subset of the cN ids shown below.
 """
         return f"""
-You are Notbook AI — a compiled medical study library interface.
-You are NOT a physician, nurse, or clinical decision tool.
-You only reorganize and present text that appears in the TEXTBOOK CONTEXT below
-(from this bot's vector database of books). Medical readers still get full
-textbook-derived study content when the books cover the topic — never invented advice.
+You are Notbook AI — a study companion that answers from uploaded sources.
+You only reorganize and present text that appears in the CONTEXT below.
+You never invent facts, guidelines, or doses.
 
 {_JSON_SCHEMA_HINT}
 {extra}
@@ -439,7 +437,7 @@ USER QUESTION:
 TEXTBOOK CONTEXT (only source of truth; each block has [cN] ids):
 {context}
 
-Preferred source_citation if model is unsure: {source_hint or "Textbook excerpt"}
+Preferred source_citation if model is unsure: {source_hint or "Excerpt"}
 """
 
     def _apply_mode_caps(self, validated: dict, mode: dict) -> dict:
@@ -484,14 +482,14 @@ Preferred source_citation if model is unsure: {source_hint or "Textbook excerpt"
         )
         if not context:
             scope = (
-                "the selected book"
+                "the selected source"
                 if namespaces
-                else "the indexed textbooks in this library"
+                else "the available sources"
             )
             return {
                 "error": (
                     f"I couldn't find this in {scope}. "
-                    "Try different wording, another book from the menu, or re-ingest."
+                    "Try different wording or pick a different source from the menu."
                 )
             }
 
@@ -583,7 +581,7 @@ Preferred source_citation if model is unsure: {source_hint or "Textbook excerpt"
                 }
 
         return last_error or {
-            "error": "Could not produce a grounded answer from the library."
+            "error": "Could not produce a grounded answer from the sources."
         }
 
     async def generate_quiz_item(self, title: str, facts: list[str], summary: str) -> dict:
@@ -598,12 +596,15 @@ Preferred source_citation if model is unsure: {source_hint or "Textbook excerpt"
 Create ONE medical study multiple-choice question from this material only.
 Return JSON only:
 {{
+  "subject": "clinical specialty (e.g. Anatomy, Cardiology)",
+  "topic": "short topic name",
+  "difficulty": "Low or Medium or High",
   "question": "short stem",
   "options": ["A ...", "B ...", "C ...", "D ..."],
   "correct_index": 0,
-  "explanation": "one short sentence"
+  "explanation": "one short sentence why the correct option is right"
 }}
-Rules: no markdown, no emoji, 4 options, exactly one correct, short wording.
+Rules: no markdown, no emoji, exactly 4 options, exactly one correct, short wording.
 Only use the material — do not invent clinical guidance.
 MATERIAL:
 {blob}
@@ -617,8 +618,11 @@ MATERIAL:
             if len(opts) < 2:
                 return {"error": "Quiz incomplete"}
             data["options"] = [strip_for_quiz_stem(str(o), 100) for o in opts[:4]]
-            data["question"] = strip_for_quiz_stem(str(data.get("question") or ""), 200)
+            data["question"] = strip_for_quiz_stem(str(data.get("question") or ""), 180)
             data["explanation"] = strip_for_quiz_stem(str(data.get("explanation") or ""), 200)
+            data["subject"] = strip_for_quiz_stem(str(data.get("subject") or ""), 40) or "General"
+            data["topic"] = strip_for_quiz_stem(str(data.get("topic") or ""), 60) or title
+            data["difficulty"] = strip_for_quiz_stem(str(data.get("difficulty") or ""), 20) or "Medium"
             idx = int(data.get("correct_index", 0))
             data["correct_index"] = max(0, min(idx, len(data["options"]) - 1))
             self.cache.set(cache_key, data)

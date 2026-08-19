@@ -35,7 +35,7 @@ _MODE_LABELS = {
     "brief": "Mode: 30-second",
     "standard": "Mode: Standard",
     "exam": "Mode: Exam",
-    "ward": "Mode: Ward round",
+    "ward": "Mode: Practical",
 }
 
 
@@ -116,8 +116,10 @@ class MessageHandler:
                     markdown="# Working…\n\nReading your question and picking a study path.",
                 )
 
-            # Patient vignette (age/sex + complaint/duration) → case work-up
-            if self.case_ws.matches(query):
+            # Practical mode → always the full case framework.
+            # Otherwise, patient vignettes (age/sex + complaint/duration) → case work-up.
+            practical = study_mode == "ward"
+            if practical or self.case_ws.matches(query):
                 intent = None
                 ndm = await self.case_ws.process(
                     query, study_mode=study_mode, namespaces=namespaces
@@ -145,7 +147,7 @@ class MessageHandler:
                 query[:80],
             )
             if draft_id:
-                scope = book_line or "all indexed books"
+                scope = book_line or "all sources"
                 await stream_draft(
                     bot,
                     chat_id,
@@ -154,8 +156,8 @@ class MessageHandler:
                         f"# Working…\n\n"
                         f"**Intent:** `{intent_tag}`  \n"
                         f"**Mode:** {study_mode}  \n"
-                        f"**Library:** {scope}\n\n"
-                        f"Searching textbook chunks…"
+                        f"**Sources:** {scope}\n\n"
+                        f"Searching…"
                     ),
                 )
 

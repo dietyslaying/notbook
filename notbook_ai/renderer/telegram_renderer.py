@@ -152,16 +152,16 @@ class TelegramRenderer:
             md_parts.append(_body_lines_md(page.get("body") or ""))
 
         elif kind == "citations":
-            parts.append("<b>Sources in this library</b>")
+            parts.append("<b>Sources</b>")
             parts.append("")
-            md_parts.append("# Sources in this library")
+            md_parts.append("# Sources")
             rows_md = [
                 "| Ref | Book | Page | Score |",
                 "| --- | --- | --- | --- |",
             ]
             for c in (page.get("citations") or [])[:6]:
                 ref = c.get("ref") or "?"
-                book = c.get("book") or "Textbook"
+                book = c.get("book") or "Source"
                 page_n = c.get("page", "N/A")
                 chunk = c.get("chunk_id") or ""
                 score = c.get("hybrid_score") or c.get("score") or 0
@@ -189,7 +189,7 @@ class TelegramRenderer:
         elif kind == "source":
             parts.append("<b>Primary citation</b>")
             parts.append("")
-            src = page.get("source") or "Textbook"
+            src = page.get("source") or "Source"
             parts.append(f"<blockquote>{_esc(src)}</blockquote>")
             md_parts.append("# Primary citation")
             md_parts.append(_blockquote_md(src))

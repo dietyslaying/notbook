@@ -29,7 +29,7 @@ _MODE_LABELS = {
     "brief": "Mode: 30-second",
     "standard": "Mode: Standard",
     "exam": "Mode: Exam",
-    "ward": "Mode: Ward round",
+    "ward": "Mode: Practical",
 }
 
 
@@ -118,13 +118,9 @@ class CallbackHandler:
         if idx < 0 or idx >= len(items):
             await callback.answer("Gone", show_alert=True)
             return
-        query = items[idx]["query"]
-        await callback.answer("Loading…")
-        from handlers.message_handler import MessageHandler
-
-        # Reuse pipeline via a fake message answer path
-        mh = MessageHandler()
-        await mh.answer_query(callback.message, callback.bot, user_id, query)
+        await self._reopen_stored(
+            callback, user_id, items[idx]["concept_id"], items[idx]["query"]
+        )
 
     async def _reask_recent(
         self, callback: CallbackQuery, data: str, user_id: int
@@ -134,12 +130,42 @@ class CallbackHandler:
         if idx < 0 or idx >= len(items):
             await callback.answer("Gone", show_alert=True)
             return
-        query = items[idx]["query"]
-        await callback.answer("Loading…")
-        from handlers.message_handler import MessageHandler
+        await self._reopen_stored(
+            callback, user_id, items[idx]["concept_id"], items[idx]["query"]
+        )
 
-        mh = MessageHandler()
-        await mh.answer_query(callback.message, callback.bot, user_id, query)
+    async def _reopen_stored(
+        self,
+        callback: CallbackQuery,
+        user_id: int,
+        concept_id: str,
+        fallback_query: str,
+    ) -> None:
+        """Re-render a stored session's first page — no regeneration.
+
+        Recent/bookmark taps redirect to the previously generated result
+        instead of paying for a fresh answer. If the session was pruned
+        (>7 days), fall back to regenerating once.
+        """
+        session = get_session(concept_id, user_id)
+        if not session:
+            await callback.answer("Topic expired — re-asking…")
+            from handlers.message_handler import MessageHandler
+
+            mh = MessageHandler()
+            await mh.answer_query(callback.message, callback.bot, user_id, fallback_query)
+            return
+        pages = self._pages_for(session)
+        screen = TelegramRenderer.render_page(
+            pages[0],
+            concept_id=concept_id,
+            page_index=0,
+            page_count=len(pages),
+            has_details=any(p.get("kind") == "section" for p in pages),
+            bookmarked=db.is_bookmarked(user_id, concept_id),
+        )
+        await edit_screen(callback, screen)
+        await callback.answer()
 
     async def _start_review(self, callback: CallbackQuery, user_id: int) -> None:
         cards = db.due_cards(user_id, limit=1)
@@ -325,23 +351,32 @@ class CallbackHandler:
         if "error" in quiz:
             await callback.message.answer(quiz["error"])
             return
-        token = uuid.uuid4().hex[:10]
-        db.save_quiz(
-            token,
-            {
-                "correct_index": quiz["correct_index"],
-                "explanation": quiz.get("explanation") or "",
-                "concept_id": cid,
-                "user_id": user_id,
-            },
-        )
-        screen = TelegramRenderer.render_quiz(
-            quiz["question"],
-            quiz["options"],
-            concept_id=cid,
-            quiz_token=token,
-        )
-        await send_screen(callback.message, screen)
+        # Native Telegram quiz poll (Bot API sendPoll type="quiz")
+        subject = (quiz.get("subject") or "General").strip() or "General"
+        topic = (quiz.get("topic") or session.title).strip() or session.title
+        difficulty = (quiz.get("difficulty") or "Medium").strip() or "Medium"
+        stem = (quiz.get("question") or "").strip() or "Quiz"
+        question = f"Subject: {subject} | Topic: {topic} | Difficulty: {difficulty}\n\n{stem}"
+        options = [str(o).strip() for o in (quiz.get("options") or [])[:4] if str(o).strip()]
+        if len(options) < 2:
+            await callback.message.answer("Quiz came back incomplete. Try again.")
+            return
+        correct = int(quiz.get("correct_index", 0))
+        correct = max(0, min(correct, len(options) - 1))
+        explanation = (quiz.get("explanation") or "").strip()[:200]
+        try:
+            await callback.bot.send_poll(
+                chat_id=callback.message.chat.id,
+                question=question[:300],
+                options=[o[:100] for o in options],
+                type="quiz",
+                correct_option_id=correct,
+                explanation=explanation or None,
+                is_anonymous=True,
+            )
+        except Exception:
+            logger.exception("send_poll failed")
+            await callback.message.answer("Couldn't send the quiz. Try again.")
 
     async def _quiz_answer(
         self, callback: CallbackQuery, data: str, user_id: int

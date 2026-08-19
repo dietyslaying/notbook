@@ -61,16 +61,14 @@ bot:
   # Live draft bubble while answering (private chats only; final message still required)
   stream_drafts: true
   # Library framing (always shown). Not a clinician — textbook compiler only.
-  library_framing: >
-    Notbook is not a doctor or medical professional.
-    It is a compiled study library from your indexed textbooks only.
-  disclaimer: >
-    Study library only — not clinical advice. Content is taken strictly from
-    the books in this bot's database. Verify against your own texts and local guidelines.
+  # Intentionally empty: the bot never identifies itself as a library, a
+  # medical tool, or anything else. "Based on Provided Excerpts…" is the only
+  # framing line users ever see (case answers).
+  library_framing: ""
+  disclaimer: ""
   emergency_banner: >
     If this is a real emergency (severe symptoms, danger to life, self-harm),
-    contact local emergency services now. Notbook only surfaces textbook study text
-    and cannot assess or treat you.
+    contact local emergency services now.
 
 adhd:
   max_summary_chars: 280
@@ -112,11 +110,11 @@ study_modes:
     max_summary_chars: 220
     focus: "High-yield exam points, traps, must-recall lists. Sections: Must-know, Traps."
   ward:
-    label: "Ward round"
+    label: "Practical"
     max_facts: 3
     max_sections: 3
     max_summary_chars: 200
-    focus: "Bedside/ward priorities: red flags, first steps, what not to miss. Sections: Red flags, First steps."
+    focus: "Practical: always answers with the full clinical case work-up format (16 sections, one long message), regardless of question wording."
 
 # --- Clinical case work-up (Phase 8) ---
 # A question that reads like a patient vignette (age/sex + complaint/duration)

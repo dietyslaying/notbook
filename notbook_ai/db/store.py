@@ -30,10 +30,15 @@ class Database:
                 """
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
-                    study_mode TEXT NOT NULL DEFAULT 'standard',
+                    study_mode TEXT NOT NULL DEFAULT 'ward',
                     preferred_namespace TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS bookmarks (
@@ -100,6 +105,18 @@ class Database:
                     "ALTER TABLE users ADD COLUMN preferred_namespace TEXT NOT NULL DEFAULT ''"
                 )
                 self._conn.commit()
+            # One-time: Practical is the default mode for all users (runs once).
+            meta = self._conn.execute(
+                "SELECT value FROM meta WHERE key = 'default_mode_ward'"
+            ).fetchone()
+            if meta is None:
+                self._conn.execute(
+                    "UPDATE users SET study_mode = 'ward' WHERE study_mode = 'standard'"
+                )
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES ('default_mode_ward', '1')"
+                )
+                self._conn.commit()
 
     def _now(self) -> float:
         return time.time()
@@ -112,7 +129,7 @@ class Database:
             self._conn.execute(
                 """
                 INSERT INTO users (user_id, study_mode, preferred_namespace, created_at, updated_at)
-                VALUES (?, 'standard', '', ?, ?)
+                VALUES (?, 'ward', '', ?, ?)
                 ON CONFLICT(user_id) DO NOTHING
                 """,
                 (user_id, now, now),

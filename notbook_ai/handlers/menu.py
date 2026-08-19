@@ -19,19 +19,15 @@ def main_menu(user_id: int) -> TelegramScreen:
     mode = db.get_study_mode(user_id)
     due = db.count_due(user_id)
     book = book_label_for_user(user_id)
-    framing = " ".join(
-        str((config.raw_config.get("bot") or {}).get("library_framing") or "").split()
-    )
     modes = config.raw_config.get("study_modes") or {}
     mode_label = (modes.get(mode) or {}).get("label") or mode
 
     text = (
-        f"<b>Notbook</b> — study library\n\n"
-        f"Book: <b>{_esc(book)}</b>\n"
+        f"<b>Notbook</b>\n\n"
+        f"Source: <b>{_esc(book)}</b>\n"
         f"Mode: <b>{_esc(str(mode_label))}</b>\n"
         f"Cards due: <b>{due}</b>\n\n"
-        f"Type a question anytime, or use the menu.\n\n"
-        f"<blockquote>{_esc(framing)}</blockquote>"
+        f"Ask anything anytime, or use the menu."
     )
     kb = [
         [
@@ -54,20 +50,19 @@ def books_menu(user_id: int) -> TelegramScreen:
     selected = db.get_preferred_namespace(user_id)
     books = list_books()
     lines = [
-        "<b>Library</b>",
+        "<b>Sources</b>",
         "",
-        "Pick a textbook as primary source.",
-        "Or use All books to search everything.",
+        "Pick a source as primary, or use All sources to search everything.",
         "",
     ]
     if not books:
-        lines.append("<i>No books ingested yet.</i>")
-        lines.append("Admin: upload via Deploy Console → Library.")
+        lines.append("<i>No sources uploaded yet.</i>")
+        lines.append("Admin: upload via Deploy Console.")
     kb: list[list[dict]] = []
     # All books
     all_mark = "· " if selected else "✓ "
     kb.append(
-        [{"text": f"{all_mark}All books", "callback_data": "setbook:all"}]
+        [{"text": f"{all_mark}All sources", "callback_data": "setbook:all"}]
     )
     for b in books[:24]:  # Telegram keyboard practical limit
         mark = "✓ " if b["namespace"] == selected else "· "
@@ -75,11 +70,7 @@ def books_menu(user_id: int) -> TelegramScreen:
         kb.append(
             [{"text": label, "callback_data": f"setbook:{b['token']}"}]
         )
-        vec = b.get("vectors") or 0
-        if vec:
-            lines.append(f"• {_esc(b['display_name'])}  ({vec} chunks)")
-        else:
-            lines.append(f"• {_esc(b['display_name'])}")
+        lines.append(f"• {_esc(b['display_name'])}")
     kb.append([{"text": "‹ Menu", "callback_data": "menu:main"}])
     return TelegramScreen(html="\n".join(lines), inline_keyboard=kb)
 
@@ -90,7 +81,7 @@ def mode_menu(user_id: int) -> TelegramScreen:
     lines = [
         "<b>Study mode</b>",
         "",
-        "How packed answers should be:",
+        "Pick how answers are shaped:",
         "",
     ]
     order = ["brief", "standard", "exam", "ward"]
@@ -99,8 +90,11 @@ def mode_menu(user_id: int) -> TelegramScreen:
     for key in order:
         meta = modes.get(key) or {}
         label = meta.get("label") or key
+        focus = " ".join(str(meta.get("focus") or "").split())
         mark = "✓ " if key == cur else ""
-        lines.append(f"• {_esc(str(label))}" + ("  ← current" if key == cur else ""))
+        lines.append(f"• <b>{_esc(str(label))}</b>" + ("  ← current" if key == cur else ""))
+        if focus:
+            lines.append(f"  {_esc(focus)}")
         row.append({"text": f"{mark}{label}"[:32], "callback_data": f"setmode:{key}"})
         if len(row) == 2:
             kb.append(row)
@@ -158,18 +152,11 @@ def recent_menu(user_id: int) -> TelegramScreen:
 
 
 def about_screen(user_id: int) -> TelegramScreen:
-    framing = " ".join(
-        str((config.raw_config.get("bot") or {}).get("library_framing") or "").split()
-    )
-    disc = " ".join(
-        str((config.raw_config.get("bot") or {}).get("disclaimer") or "").split()
-    )
     text = (
         f"<b>About Notbook</b>\n\n"
-        f"{_esc(framing)}\n\n"
-        f"{_esc(disc)}\n\n"
-        f"Answers are compiled from your indexed textbooks only.\n"
-        f"Not a clinician — a study library interface."
+        f"A study companion that answers from your uploaded sources.\n\n"
+        f"Upload your own PDFs in Deploy Console, ask questions, "
+        f"quiz yourself, and review with flashcards."
     )
     kb = [[{"text": "‹ Menu", "callback_data": "menu:main"}]]
     return TelegramScreen(html=text, inline_keyboard=kb)

@@ -183,7 +183,7 @@ def filter_ndm_dict(data: dict[str, Any]) -> dict[str, Any]:
             sections.append({"heading": heading, "body": body})
 
     source = _trim(
-        clean_plain_text(data.get("source_citation") or "Textbook excerpt"),
+        clean_plain_text(data.get("source_citation") or "Excerpt"),
         200,
     )
 
