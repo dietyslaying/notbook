@@ -8,6 +8,7 @@ Falls back to long polling automatically when no public URL is known
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 import sys
@@ -41,12 +42,48 @@ async def handle_health(_request: web.Request) -> web.Response:
     return web.Response(text="Notbook AI is running")
 
 
+# Telegram's official webhook source ranges (Bot API docs).
+_TELEGRAM_NETS = [
+    ipaddress.ip_network("149.154.160.0/20"),
+    ipaddress.ip_network("91.108.4.0/22"),
+]
+
+
+def _from_telegram(request: web.Request) -> bool:
+    """True if the request came from Telegram's datacenter ranges.
+
+    Telegram only attaches the secret header to updates received AFTER the
+    webhook was set with a secret; updates queued before that are delivered
+    without it. Accepting those from Telegram's own IPs is safe (spoof-proof
+    behind Render's proxy), while 403'ing everyone else.
+    """
+    candidates = [request.remote]
+    xff = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    if xff:
+        candidates.append(xff)
+    for ip in candidates:
+        if not ip:
+            continue
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        if any(addr in net for net in _TELEGRAM_NETS):
+            return True
+    return False
+
+
 async def handle_webhook(request: web.Request) -> web.Response:
     """Telegram POSTs updates here; verified with X-Telegram-Bot-Api-Secret-Token."""
     webhook_cfg = config.raw_config.get("webhook") or {}
     secret = os.getenv("WEBHOOK_SECRET_TOKEN") or webhook_cfg.get("secret_token") or ""
-    if secret and request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
-        return web.Response(status=403, text="forbidden")
+    given = request.headers.get("X-Telegram-Bot-Api-Secret-Token") or ""
+    if secret and given != secret:
+        if not _from_telegram(request):
+            return web.Response(status=403, text="forbidden")
+        logger.warning(
+            "webhook delivery without secret header accepted from Telegram IP"
+        )
     try:
         payload = await request.json()
     except Exception:
@@ -69,6 +106,7 @@ _webhook_path = str(webhook_cfg.get("path") or "/webhook")
 if not _webhook_path.startswith("/"):
     _webhook_path = "/" + _webhook_path
 app.router.add_post(_webhook_path, handle_webhook)
+app.router.add_get(_webhook_path, handle_health)  # Telegram probe / browser visits
 
 # Console ↔ bot authenticated routes (/internal/*)
 from handlers.internal_api import register_internal_routes  # noqa: E402
