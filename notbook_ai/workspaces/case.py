@@ -62,13 +62,16 @@ class CaseWorkspace(BaseWorkspace):
 
         data = cf.validate_case_json(raw)
         if "error" in data:
-            # One repair retry: the model may have wrapped JSON in prose/fences.
+            # One repair retry: previous output was unparseable (usually
+            # truncation). Ask for a compact answer and allow more tokens.
             logger.warning("case JSON parse failed, retrying with repair hint")
             try:
                 raw = await gemini_service.generate_json(
                     prompt
                     + "\n\nIMPORTANT: Your previous response was not parseable JSON. "
-                    "Return ONLY the JSON object itself — no markdown fences, no commentary."
+                    "Return ONLY a compact JSON object — every section short, "
+                    "max 4 bullets each. No markdown fences, no commentary.",
+                    max_output_tokens=8192,
                 )
                 data = cf.validate_case_json(raw)
             except Exception as e:

@@ -3,7 +3,7 @@ llm:
   temperature: 0.15
   top_p: 0.9
   top_k: 32
-  max_output_tokens: 4096
+  max_output_tokens: 8192
 
 cache:
   ttl: 3600

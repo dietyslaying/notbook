@@ -154,8 +154,12 @@ class GeminiService:
         logger.info("Pinecone index ready: %s (dim=%s)", name, dim)
         return self._index
 
-    async def generate_json(self, prompt: str) -> str:
-        return await gemini_client.generate(prompt, json_mode=True)
+    async def generate_json(
+        self, prompt: str, max_output_tokens: int | None = None
+    ) -> str:
+        return await gemini_client.generate(
+            prompt, json_mode=True, max_output_tokens=max_output_tokens
+        )
 
     async def _generate_json(self, prompt: str) -> str:
         return await self.generate_json(prompt)

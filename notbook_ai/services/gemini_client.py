@@ -24,12 +24,14 @@ class GeminiClient:
         self.max_output_tokens = int(llm.get("max_output_tokens", 4096))
         self._lock = asyncio.Lock()
 
-    def _gen_config(self, *, json_mode: bool = True) -> types.GenerateContentConfig:
+    def _gen_config(
+        self, *, json_mode: bool = True, max_output_tokens: Optional[int] = None
+    ) -> types.GenerateContentConfig:
         kwargs: dict = {
             "temperature": self.temperature,
             "top_p": self.top_p,
             "top_k": self.top_k,
-            "max_output_tokens": self.max_output_tokens,
+            "max_output_tokens": max_output_tokens or self.max_output_tokens,
         }
         if json_mode:
             kwargs["response_mime_type"] = "application/json"
@@ -41,9 +43,12 @@ class GeminiClient:
         *,
         json_mode: bool = True,
         model: Optional[str] = None,
+        max_output_tokens: Optional[int] = None,
     ) -> str:
         model_name = model or self.model_name
-        cfg = self._gen_config(json_mode=json_mode)
+        cfg = self._gen_config(
+            json_mode=json_mode, max_output_tokens=max_output_tokens
+        )
         n_keys = max(1, gemini_key_pool.key_count())
         attempts = max(4, n_keys * 2)
         last_err: Exception | None = None

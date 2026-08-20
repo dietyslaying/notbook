@@ -31,10 +31,13 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import re
 from typing import Any, Optional
 
 from config import config
+
+logger = logging.getLogger(__name__)
 
 
 def _esc(s: str) -> str:
@@ -441,6 +444,7 @@ FORMAT:
 - JSON only. No markdown, no HTML, no emojis inside the JSON text.
 - Three item types per section: "~Label" → sub-heading (bold + underline); "- text" → plain prose line (lead-ins, takeaways, A → B reasoning); anything else → "•" bullet. Every section must be readable in the sample-case style.
 - Bullets short (max ~150 chars), max 8 per section.
+- Keep the whole JSON compact — total under ~3500 words. Short is better than complete.
 - No filler ("it is important to note", "in conclusion"). Keep it tight.
 
 SCOPE: {scope}
@@ -704,6 +708,11 @@ def validate_case_json(raw_llm_output: str) -> dict[str, Any]:
     """Parse + soft-validate the case JSON. Returns {"error": ...} on failure."""
     data = _extract_json(raw_llm_output)
     if data is None:
+        tail = (raw_llm_output or "")[-160:].replace("\n", " ")
+        head = (raw_llm_output or "")[:160].replace("\n", " ")
+        logger.warning(
+            "case JSON unparseable — head=%r tail=%r", head, tail
+        )
         return {"error": "Model returned unparseable JSON for the case work-up."}
     if not isinstance(data, dict):
         return {"error": "Model returned non-object JSON for the case work-up."}
