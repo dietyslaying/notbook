@@ -69,8 +69,12 @@ class CaseWorkspace(BaseWorkspace):
                 raw = await gemini_service.generate_json(
                     prompt
                     + "\n\nIMPORTANT: Your previous response was not parseable JSON. "
-                    "Return ONLY a compact JSON object — every section short, "
-                    "max 4 bullets each. No markdown fences, no commentary.",
+                    "Return ONLY a compact JSON object with EXACTLY the keys from the "
+                    "instructions (presentation, triage, history, exam, assessment, "
+                    "problem_list, differential, investigations, interpretation, "
+                    "working_diagnosis, management, bedside, disposition, principles, "
+                    "bottom_line) — every section short, max 4 bullets each. "
+                    "No markdown fences, no commentary.",
                     max_output_tokens=8192,
                 )
                 data = cf.validate_case_json(raw)

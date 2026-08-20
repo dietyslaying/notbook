@@ -442,9 +442,14 @@ SOURCING:
 
 FORMAT:
 - JSON only. No markdown, no HTML, no emojis inside the JSON text.
+- JSON object with EXACTLY these keys (each maps to an array of strings, in this order):
+  "presentation", "triage", "history", "exam", "assessment", "problem_list",
+  "differential", "investigations", "interpretation", "working_diagnosis",
+  "management", "bedside", "disposition", "principles", "bottom_line".
+  Use these keys VERBATIM — never the section titles, never numbers.
 - Three item types per section: "~Label" → sub-heading (bold + underline); "- text" → plain prose line (lead-ins, takeaways, A → B reasoning); anything else → "•" bullet. Every section must be readable in the sample-case style.
-- Bullets short (max ~150 chars), max 8 per section.
-- Keep the whole JSON compact — total under ~3500 words. Short is better than complete.
+- Bullets short (max ~120 chars), max 5 per section.
+- Keep the whole JSON compact — total under ~2000 words. Short is better than complete.
 - No filler ("it is important to note", "in conclusion"). Keep it tight.
 
 SCOPE: {scope}
@@ -678,6 +683,51 @@ _REQUIRED_CASE_KEYS = [
     "bottom_line",
 ]
 
+# Maps any key the model might emit (numbered section titles, short forms)
+# onto the canonical keys above. Normalized to uppercase without punctuation.
+_CASE_KEY_ALIASES: dict[str, str] = {
+    "PATIENT PRESENTATION": "presentation",
+    "PRESENTATION": "presentation",
+    "INITIAL TRIAGE": "triage",
+    "INITIAL TRIAGE STABILIZATION": "triage",
+    "TRIAGE": "triage",
+    "HISTORY": "history",
+    "PHYSICAL EXAMINATION": "exam",
+    "EXAMINATION": "exam",
+    "EXAM": "exam",
+    "CLINICAL ASSESSMENT": "assessment",
+    "ASSESSMENT": "assessment",
+    "PROBLEM LIST": "problem_list",
+    "DIFFERENTIAL DIAGNOSIS": "differential",
+    "DIFFERENTIAL": "differential",
+    "INVESTIGATIONS": "investigations",
+    "INTERPRETATION": "interpretation",
+    "WORKING DIAGNOSIS": "working_diagnosis",
+    "MANAGEMENT": "management",
+    "BEDSIDE GUIDANCE": "bedside",
+    "BEDSIDE": "bedside",
+    "DISPOSITION FOLLOW UP": "disposition",
+    "DISPOSITION AND FOLLOW UP": "disposition",
+    "DISPOSITION": "disposition",
+    "CORE CLINICAL PRINCIPLES": "principles",
+    "PRINCIPLES": "principles",
+    "BOTTOM LINE": "bottom_line",
+}
+
+
+def _norm_key(k: Any) -> str:
+    """Map a model-emitted JSON key to a canonical case key (or pass through)."""
+    s = re.sub(r"[^A-Za-z ]", " ", str(k or ""))
+    s = re.sub(r"\s+", " ", s).strip().upper()
+    if not s:
+        return str(k)
+    if s in _CASE_KEY_ALIASES:
+        return _CASE_KEY_ALIASES[s]
+    for label, canon in _CASE_KEY_ALIASES.items():
+        if s.startswith(label):
+            return canon
+    return str(k)
+
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULTILINE)
 _TRAILING_COMMA = re.compile(r",\s*([}\]])")
 
@@ -716,6 +766,8 @@ def validate_case_json(raw_llm_output: str) -> dict[str, Any]:
         return {"error": "Model returned unparseable JSON for the case work-up."}
     if not isinstance(data, dict):
         return {"error": "Model returned non-object JSON for the case work-up."}
+
+    data = {_norm_key(k): v for k, v in data.items()}
 
     for key in _REQUIRED_CASE_KEYS:
         if not isinstance(data.get(key), list):
