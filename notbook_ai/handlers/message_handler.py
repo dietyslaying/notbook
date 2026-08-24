@@ -221,7 +221,7 @@ class MessageHandler:
                 concept_id=concept_id,
                 user_id=user_id,
                 query=query,
-                intent=intent.value,
+                intent=intent_tag,
                 title=str(ndm.get("title") or "Topic"),
                 pages_html=pages_html,
                 source=str(ndm.get("source_citation") or ""),
@@ -231,7 +231,7 @@ class MessageHandler:
                 citations=list(ndm.get("citations") or []),
             )
             put_session(session)
-            db.touch_recent(user_id, concept_id, session.title, query, intent.value)
+            db.touch_recent(user_id, concept_id, session.title, query, intent_tag)
 
             first = TelegramRenderer.render_page(
                 pages[0],

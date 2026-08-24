@@ -42,6 +42,9 @@ class CallbackHandler:
             await callback.answer()
             return
 
+        # Answer callback IMMEDIATELY to avoid Telegram timeout
+        await callback.answer()
+
         try:
             if data.startswith("menu:"):
                 await self._menu(callback, data, user_id)
